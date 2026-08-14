@@ -1,0 +1,170 @@
+---
+title: "YouTube — Video Upload and Streaming"
+description: "Design YouTube's video platform: chunked upload, asynchronous transcoding pipelines, adaptive bitrate streaming with HLS/DASH, and CDN economics for 1 billion hours of daily playback."
+order: 3
+difficulty: Advanced
+readTime: "22 min read"
+diagram: YoutubeDiagram
+isCaseStudy: true
+problemStatement: "Design YouTube. Users should be able to upload videos, and other users should be able to stream them with minimal buffering."
+interviewTips:
+  - "Separate upload from streaming — they have completely different requirements"
+  - "Explain adaptive bitrate streaming (HLS/DASH) — interviewers love this detail"
+  - "Transcoding is CPU-intensive — use a worker queue (message queue + workers)"
+  - "Mention that 20% of videos get 80% of views — CDN economics depend on this"
+  - "Video metadata and video bytes are stored differently"
+takeaways:
+  - "Video upload and video streaming are separate flows with different optimizations"
+  - "Transcoding happens asynchronously via a message queue after upload"
+  - "Adaptive bitrate streaming adjusts video quality based on network conditions in real-time"
+  - "CDNs make YouTube economically viable by caching popular videos near users"
+relatedTopics: []
+---
+
+## Requirements
+
+YouTube's product is complex — comments, recommendations, monetization — but the system design interview focuses on two flows: upload and stream. Scope the problem before designing.
+
+**Functional requirements:**
+- Creators can upload videos from a web browser or mobile app.
+- Videos are available for playback after a processing delay (not instant).
+- Viewers can stream videos at multiple quality levels (360p through 4K).
+- The video quality adapts automatically based on the viewer's network speed.
+- Basic search: find videos by title.
+
+**Non-functional requirements:**
+- **Scale**: 500 hours of video are uploaded to YouTube every minute. Over 1 billion hours of video are watched daily.
+- **Upload reliability**: large uploads must survive network interruptions.
+- **Streaming latency**: video playback should start within a few seconds and buffer minimally.
+- **Storage cost**: storing and serving petabytes of video economically requires intelligent caching.
+- **Durability**: uploaded videos must never be silently lost.
+
+The upload and streaming flows have fundamentally different requirements — different infrastructure, different bottlenecks, different failure modes. Design them separately.
+
+## Scale Estimation
+
+**Upload throughput**: 500 hours of video per minute. Assuming average video is compressed to roughly 1 GB per hour of footage:
+
+```
+Upload bandwidth = 500 GB/min ≈ 8.3 GB/sec incoming
+```
+
+That is the raw ingestion bandwidth. After transcoding to multiple resolutions (360p, 720p, 1080p, 4K), storage multiplies — estimate 5x the raw size across all variants:
+
+```
+Storage growth ≈ 8.3 GB/sec × 5 = 41.5 GB/sec written to object storage
+```
+
+**Viewing scale**: 1 billion hours watched per day:
+
+```
+Concurrent viewers ≈ 1,000,000,000 hours / 24 = 41.7M simultaneous streams
+```
+
+Video bitrates range from 0.5 Mbps (360p) to 25 Mbps (4K). At an average of 2 Mbps per stream:
+
+```
+Outbound bandwidth ≈ 41.7M × 2 Mbps = 83 Tbps
+```
+
+No single data center handles 83 Tbps of outbound video. This number immediately tells you the answer: a global CDN is not optional — it is the only way the economics work.
+
+## Video Upload Flow
+
+Uploading a raw video file — often multiple gigabytes — over the internet requires a design that handles unreliable connections gracefully. A single HTTP PUT of a 10 GB file is impractical; any network interruption means starting over.
+
+**Chunked (resumable) upload**:
+1. The client sends a metadata request first: `POST /upload/init` with title, description, filesize. The server returns an `upload_id`.
+2. The client splits the video into 4–8 MB chunks and uploads each chunk with its byte range: `PUT /upload/{upload_id}?offset=0`, `PUT /upload/{upload_id}?offset=8388608`, and so on.
+3. Each chunk is acknowledged by the server. The client tracks which chunks are done.
+4. If the connection drops, the client resumes from the last acknowledged chunk — no wasted work.
+5. Once all chunks are received, the server assembles the file in object storage and enqueues it for processing.
+
+The chunk size of 4–8 MB is a practical sweet spot: small enough that a failed chunk is cheap to retry, large enough that HTTP overhead per chunk is negligible.
+
+The raw uploaded file lands in **object storage** (S3 or Google Cloud Storage) tagged as "raw/unprocessed." Object storage is durable (11 nines), infinitely scalable, and cheap per GB — exactly right for large binary blobs that are written once and read many times.
+
+## Video Processing Pipeline
+
+A raw video cannot be streamed directly to viewers for several reasons: it may be in any codec or container format, it has only one resolution, and it has not been segmented into the small chunks that adaptive streaming requires. Processing is mandatory before a video is available for playback.
+
+The processing pipeline is **asynchronous**:
+
+1. The upload service writes the raw file to object storage and publishes a message to a **message queue** (e.g., Kafka or SQS): `{"video_id": "abc123", "raw_path": "s3://raw/abc123.mp4"}`.
+2. A pool of **transcoding workers** pulls jobs from the queue. Each worker:
+   - Downloads the raw video from object storage.
+   - Runs **FFmpeg** to transcode it into multiple output formats: 360p H.264, 720p H.264, 1080p H.264, 4K VP9 (Google's own codec for efficiency).
+   - Splits each output into small fixed-duration segments (e.g., 2-second chunks) as required by HLS and DASH streaming protocols.
+   - Generates a **manifest file** (`.m3u8` for HLS, `.mpd` for DASH) that lists all segments and their quality variants.
+   - Uploads all segments and the manifest to object storage under a "processed" prefix.
+3. When processing completes, the worker updates the video's status in the metadata database to "available" and publishes a completion event.
+
+Transcoding is CPU-intensive: transcoding one hour of 1080p video can take 30+ minutes on a single CPU core. The message queue allows you to scale the worker pool horizontally — add more workers during peak hours, scale down overnight. Workers are stateless, so autoscaling is straightforward.
+
+The result of processing one uploaded video is many artifacts in object storage: dozens of segment files per quality level, manifest files, and auto-generated thumbnails (sampled at fixed intervals by a separate thumbnail worker).
+
+## Video Streaming
+
+When a viewer presses play, they do not receive the entire video file at once — that would waste bandwidth and memory. Instead, they receive a stream of small segments fetched on demand. This is called **Adaptive Bitrate (ABR) streaming**, and the two dominant protocols are **HLS** (HTTP Live Streaming, Apple) and **DASH** (Dynamic Adaptive Streaming over HTTP, MPEG).
+
+The flow:
+1. The player fetches the manifest file: `GET /videos/abc123/manifest.m3u8`.
+2. The manifest lists all available quality variants and their segment URLs:
+   ```
+   #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+   /videos/abc123/360p/index.m3u8
+   #EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1280x720
+   /videos/abc123/720p/index.m3u8
+   #EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=1920x1080
+   /videos/abc123/1080p/index.m3u8
+   ```
+3. The player's ABR algorithm measures current bandwidth and buffer health, then selects the appropriate quality tier.
+4. The player fetches the next segment (e.g., `segment_003.ts`) before the current one finishes playing, maintaining a 30-second buffer.
+5. If network conditions change (bandwidth drops, packet loss), the ABR algorithm switches to a lower quality tier on the next segment boundary — seamlessly, without pausing.
+
+**Why segments?** Each 2-second segment is independently decodable. Switching quality tiers just means fetching the next segment from a different quality folder — no re-buffering required. The segment size balances between startup latency (smaller segments = faster first byte) and efficiency (larger segments = less HTTP overhead).
+
+All segments and manifests are served through a CDN — the origin server (object storage) is rarely hit for popular videos.
+
+## Metadata and Search
+
+Video file bytes and video metadata have different access patterns and belong in different stores.
+
+The **metadata database** (MySQL) stores:
+
+```sql
+CREATE TABLE videos (
+  video_id     VARCHAR(20) PRIMARY KEY,   -- e.g. "dQw4w9WgXcQ"
+  title        VARCHAR(200),
+  description  TEXT,
+  uploader_id  BIGINT NOT NULL,
+  status       ENUM('processing', 'available', 'deleted'),
+  duration_sec INT,
+  view_count   BIGINT DEFAULT 0,
+  like_count   BIGINT DEFAULT 0,
+  created_at   TIMESTAMP,
+  thumbnail_url TEXT
+);
+```
+
+MySQL handles relational queries well: "get all videos by user X," "get video details for player page." View counts are a high-update field — avoid per-view SQL updates; instead, batch count increments and apply them periodically.
+
+**Search** requires full-text indexing. MySQL's full-text search degrades at YouTube's scale. The standard solution is **Elasticsearch**: index video titles and descriptions, enabling fast keyword search with relevance ranking. When a video is created or updated, a sync process keeps Elasticsearch in sync with MySQL.
+
+**Recommendations** are a separate ML system that falls outside this design. Acknowledge it exists and move on.
+
+Thumbnails are static images served through the CDN — they are generated during the transcoding pipeline and stored in object storage alongside the video segments.
+
+## CDN Strategy
+
+The CDN is not a nice-to-have — it is what makes YouTube's bandwidth bill survivable. Without it, every video stream would originate from a central data center, and 83 Tbps of outbound traffic through a single origin is not achievable at any reasonable cost.
+
+**How CDN caching works for video**: when a viewer in London watches a popular video, the CDN edge node in London fetches the video segments from the origin once and caches them locally. Every subsequent viewer in London (and the surrounding region) is served from the London edge node. The origin server sees only the first request.
+
+**The 80/20 rule is critical here**: roughly 20% of videos account for 80% of views. The CDN's cache hit rate for popular videos approaches 100%. The long tail of rarely-watched videos (older uploads, niche content) stays at origin, but they account for only 20% of traffic. CDN economics work because of this distribution.
+
+**Cache control headers**: popular videos use long `Cache-Control: max-age` headers (24 hours or more). The URL for each segment includes a content hash or version, so when a video is reprocessed (e.g., due to a quality bug), new segment URLs are generated and the CDN cache is bypassed automatically.
+
+**Regional architecture**: YouTube operates multiple origin regions. A user in Asia uploads to the nearest upload endpoint; their video is stored in an Asian data center first, then replicated globally for CDN seeding. Regional origins reduce upload latency and mean the CDN in each region has a nearby origin to fill from.
+
+The full data flow for a view: viewer's player fetches manifest from CDN edge → CDN edge serves cached manifest (or fetches from origin and caches) → player fetches 2-second segments from CDN edge → CDN edge serves from local cache with near-zero latency. The origin object storage sees only cache misses — typically the first viewer in each region for each video.

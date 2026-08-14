@@ -1,0 +1,170 @@
+---
+title: "Google Drive — File Sync and Storage"
+description: "Design Google Drive: content-addressed chunking for deduplication, delta sync for bandwidth efficiency, metadata vs blob storage separation, and conflict resolution for concurrent edits."
+order: 5
+difficulty: Advanced
+readTime: "20 min read"
+diagram: GoogleDriveDiagram
+isCaseStudy: true
+problemStatement: "Design Google Drive. Users should be able to upload files, sync them across devices, and share them with others."
+interviewTips:
+  - "Content-addressed storage (hash-based) enables automatic deduplication"
+  - "Delta sync is the key insight — only upload changed blocks"
+  - "Metadata and block storage are separate systems with different characteristics"
+  - "Conflict resolution is unavoidable — choose a strategy and explain trade-offs"
+  - "Resumable uploads are essential for large files on unreliable connections"
+takeaways:
+  - "Chunking files and identifying chunks by content hash enables deduplication and delta sync"
+  - "Separate metadata (SQL) from blob storage (object store) — very different access patterns"
+  - "Delta sync uploads only changed blocks — critical for large files and slow connections"
+  - "Content-addressed storage means storing the same file twice is free at the block level"
+relatedTopics: []
+---
+
+## Requirements
+
+Google Drive is a cloud storage and sync service. Users upload files, access them from any device, and share them with collaborators. The design interview focuses on three core capabilities: upload, sync, and share.
+
+**Functional requirements:**
+- Users can upload files of any type (documents, photos, videos, etc.).
+- Files are synchronized across all of a user's devices automatically.
+- Users can share files or folders with other users (view or edit access).
+- Users can view version history and restore previous versions.
+- Files up to several GB in size must be supported.
+
+**Non-functional requirements:**
+- **Scale**: 1 billion+ users. Google offers 15 GB free per user.
+- **Reliability**: uploaded files must never be lost. Durability target is 11 nines (99.999999999%).
+- **Sync speed**: changes on one device should appear on other devices within seconds.
+- **Bandwidth efficiency**: syncing a 1 GB file after a small edit must not require re-uploading 1 GB.
+- **Availability**: users should be able to access their files even if some parts of the system are degraded.
+
+The bandwidth efficiency requirement is the key design constraint that shapes the entire architecture. It motivates chunking, content addressing, and delta sync — the three ideas that make Google Drive possible at scale.
+
+## Scale Estimation
+
+1 billion users, each with up to 15 GB free:
+
+```
+Total addressable storage = 1B × 15 GB = 15 exabytes
+```
+
+In practice, not every user fills their quota — assume average utilization of 5 GB:
+
+```
+Actual storage = 1B × 5 GB = 5 exabytes
+```
+
+5 exabytes requires distributed object storage at planetary scale — achievable with Google Cloud Storage or similar systems but impossible with traditional file systems or relational databases.
+
+Assuming 100 million active daily users, and each uploads or modifies roughly 2 files per day at an average file size of 5 MB:
+
+```
+Daily upload volume = 100M × 2 × 5 MB = 1 PB/day
+Upload bandwidth = 1 PB / 86,400 ≈ 11.6 GB/sec
+```
+
+Without delta sync, that 11.6 GB/sec bandwidth requirement grows with every user who edits a large file. With delta sync, most sync events upload only a few kilobytes of changed blocks rather than full files.
+
+## File Upload and Chunking
+
+The naive approach — `POST /upload` with the entire file body — fails for large files. A 2 GB file upload fails silently on a mobile connection that drops after 30 minutes. You must start over. At scale, this makes large file uploads unreliable and wastes enormous bandwidth.
+
+The solution is **chunked upload with content addressing**:
+
+1. The sync client splits every file into fixed-size blocks — typically 4 MB each.
+2. For each block, the client computes a **SHA-256 hash** of the block's bytes. This hash uniquely identifies the block's content.
+3. The client sends the list of block hashes to the server: `POST /files/sync` with `{"filename": "report.pdf", "blocks": ["sha256:abc...", "sha256:def...", ...]}`.
+4. The server checks which block hashes it already has in storage. It responds with a list of missing hashes — blocks it does not yet have.
+5. The client uploads only the missing blocks: `PUT /blocks/{hash}` for each one.
+6. The server assembles the file metadata record pointing to the list of block hashes in order.
+
+This protocol has two transformative properties:
+
+**Resumable uploads**: if the connection drops mid-upload, the client restarts the sync. The server still has all previously uploaded blocks. Only the blocks not yet acknowledged are re-uploaded. For a 1 GB file, a dropout after 90% completion means uploading only the remaining 100 MB, not starting over.
+
+**Automatic deduplication**: the SHA-256 hash of a block's content is its address in storage. If two users upload the same file (or if the same file exists twice in a user's account), the block store already has those blocks — the server says "I have all these blocks already" and the client uploads nothing. Storing the same content twice costs zero additional storage at the block level.
+
+## Metadata Service
+
+File metadata and file bytes are completely different in nature and require different storage systems.
+
+**Metadata** (file names, paths, ownership, version history, block lists) is structured, relational data with complex query patterns: "list all files in this folder," "show me version history for this file," "find all files shared with me." This belongs in a **relational database** (MySQL or PostgreSQL).
+
+```sql
+CREATE TABLE files (
+  file_id      VARCHAR(36) PRIMARY KEY,   -- UUID
+  user_id      BIGINT NOT NULL,
+  name         VARCHAR(500),
+  parent_id    VARCHAR(36),               -- folder hierarchy
+  version      INT DEFAULT 1,
+  block_list   JSON,                      -- ordered list of block hashes
+  size_bytes   BIGINT,
+  created_at   TIMESTAMP,
+  updated_at   TIMESTAMP,
+  is_deleted   BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE file_versions (
+  version_id   BIGINT PRIMARY KEY AUTO_INCREMENT,
+  file_id      VARCHAR(36),
+  version      INT,
+  block_list   JSON,
+  modified_by  BIGINT,
+  modified_at  TIMESTAMP
+);
+```
+
+**Block storage** (the actual bytes of each 4 MB chunk) is object storage (S3, Google Cloud Storage). The key is the block's SHA-256 hash; the value is the block's bytes. This is **content-addressed storage** — the address is derived from the content. Given any hash, you can look up the block bytes in O(1). The block store is immutable: blocks are written once and never overwritten (the content hash would change if you changed the bytes).
+
+The separation is important: metadata changes on every rename, move, or edit, but the underlying block bytes often do not. A rename operation updates one row in the metadata database and touches zero blocks in object storage.
+
+## Sync Protocol
+
+The sync client runs on each device, watching the local filesystem for changes. When a change is detected:
+
+1. **Local change detected**: the sync client identifies which files were created, modified, or deleted (using filesystem events or periodic checksums).
+2. **Block diff computation**: for a modified file, the client computes the SHA-256 hash of each 4 MB block. It compares the new block list to the previously-uploaded block list (stored locally in a sync state database). Only changed blocks need to be uploaded.
+3. **Upload delta**: the client contacts the metadata service with the new block list. The server identifies missing blocks. The client uploads only those blocks.
+4. **Metadata update**: once all blocks are confirmed stored, the client updates the file metadata record with the new block list and increments the version number.
+5. **Notify other devices**: the metadata service publishes a change notification (via WebSocket or long-polling) to all other devices registered under the same user account.
+6. **Remote devices sync**: each other device receives the notification, fetches the new metadata, computes which blocks it is missing, and downloads only those blocks.
+
+The delta sync protocol means that editing the last paragraph of a 100-page document uploads roughly one 4 MB block (the block containing the changed text), not the entire document. For large files on slow connections, this is the difference between a 5-second sync and a 20-minute re-upload.
+
+## Conflict Resolution
+
+When a user edits a file on two devices simultaneously — or when a device resumes sync after being offline — the server may receive two conflicting versions of the same file. Both cannot be "the truth." The system must resolve the conflict.
+
+**Last-write-wins (LWW)**: the simplest strategy. The server accepts whichever version has the later `updated_at` timestamp and discards the other. This is consistent and automatic but loses data: if both edits are meaningful (e.g., you added a paragraph on your laptop and fixed a typo on your phone), one edit is silently dropped.
+
+**Conflict copy**: when the server detects a conflict (two updates to the same file with the same base version), it accepts both and creates a "conflict copy" alongside the original. The user sees two versions of the file and must manually decide which to keep. This preserves both edits but creates user friction.
+
+**Operational transformation / CRDTs** (Conflict-free Replicated Data Types): used by Google Docs for real-time collaborative editing. These algorithms allow multiple concurrent edits to be merged algorithmically without conflicts. They are complex to implement and specific to structured document types — not applicable to arbitrary binary files.
+
+**Google Drive's approach** for binary files (PDFs, images, executables) is conflict copy: preserve both edits and surface the conflict to the user. For Google Docs/Sheets/Slides (structured documents with a defined schema), operational transformation enables real-time collaboration without conflicts.
+
+For this design, the pragmatic choice is: **conflict copy with last-write-wins as a fallback**. For most users, conflicts are rare — the system should handle them gracefully when they occur without losing data.
+
+## Sharing and Permissions
+
+File sharing requires an **access control list (ACL)** — a mapping from files to users and their permission levels.
+
+```sql
+CREATE TABLE file_permissions (
+  file_id    VARCHAR(36),
+  user_id    BIGINT,
+  role       ENUM('viewer', 'commenter', 'editor', 'owner'),
+  granted_by BIGINT,
+  granted_at TIMESTAMP,
+  PRIMARY KEY (file_id, user_id)
+);
+```
+
+When a user accesses a file, the system checks this table to verify they have the required permission. For public sharing (share link that anyone can open), a separate table maps share tokens to file IDs with a permission level.
+
+**Folder inheritance**: permissions on a folder apply to all files within it. Implementing this efficiently requires either storing explicit ACL rows for every file in an inherited folder (denormalized, fast lookup) or traversing the folder hierarchy at access time (normalized, expensive). Google Drive uses a hybrid: ACL rows store explicit permissions, and a background job propagates permission changes through the folder tree.
+
+**Sharing large folders**: sharing a folder with 50,000 files means writing 50,000 ACL rows. This is done asynchronously — the share operation returns immediately, and a background job propagates the ACL. Users with access to the share link can start accessing files within seconds even before all ACL rows are written, because the system checks both explicit ACL rows and the inherited permission from the parent folder.
+
+The sharing system demonstrates a general principle: for operations that involve large fan-out (sharing → many ACL writes), use asynchronous background processing rather than blocking the user's request. Return optimistically and converge to the correct state in the background.

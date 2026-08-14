@@ -1,0 +1,155 @@
+---
+title: "Discord — Real-Time Messaging at Scale"
+description: "Design Discord's messaging system: WebSocket gateways, pub/sub routing, Cassandra for time-series chat history, Snowflake IDs, and the presence and read-state subsystems."
+order: 4
+difficulty: Advanced
+readTime: "18 min read"
+diagram: DiscordDiagram
+isCaseStudy: true
+problemStatement: "Design Discord's messaging system. Users can join servers, create channels, and send messages in real-time."
+interviewTips:
+  - "WebSockets are required — HTTP polling won't scale for real-time messages"
+  - "Cassandra is the right DB — write-heavy, time-series, horizontal scale"
+  - "Explain the pub/sub layer that connects WebSocket gateway servers"
+  - "Presence is a separate problem from messaging — address it separately"
+  - "Snowflake IDs give you time-ordered IDs without a central sequence"
+takeaways:
+  - "WebSockets with a pub/sub backend enable real-time messaging at Discord's scale"
+  - "Cassandra's write optimization and time-series capabilities make it ideal for chat messages"
+  - "Snowflake IDs solve distributed ID generation while preserving time ordering"
+  - "Presence and read state are separate systems from message storage — model them differently"
+relatedTopics: []
+---
+
+## Requirements
+
+Discord is a real-time communication platform organized around "servers" (communities) and "channels" (topic-specific chat rooms within a server). Scope the design to the messaging core.
+
+**Functional requirements:**
+- Users can join servers and see their list of channels.
+- Users can send text messages in a channel.
+- All online users in a channel receive new messages in real-time (within ~1 second).
+- Users can scroll back through message history.
+- A user's online/offline status (presence) is visible to members of shared servers.
+- Read state tracks the last message a user has seen in each channel.
+
+**Non-functional requirements:**
+- **Scale**: 19 million+ active Discord servers. 4 billion messages sent per day.
+- **Latency**: message delivery must feel instant — under 100ms from sender to recipient.
+- **Durability**: messages are permanently stored; users must be able to scroll back to the beginning of a channel.
+- **Availability**: messaging services must be highly available; temporary degradation of presence is acceptable.
+
+The key constraint is **real-time delivery**. This rules out HTTP polling and mandates persistent connections.
+
+## Scale Estimation
+
+4 billion messages per day:
+
+```
+Message write QPS = 4,000,000,000 / 86,400 ≈ 46,300 messages/sec
+```
+
+This is write-heavy by any definition. At peak hours the QPS spikes higher. The database must be optimized for writes, not reads. This is the first signal that Cassandra is the right storage backend.
+
+For concurrent connections: Discord has 19 million active servers. If 10% of registered users (assume 500M registered) are online at peak:
+
+```
+Concurrent WebSocket connections ≈ 50,000,000
+```
+
+50 million concurrent persistent connections cannot be handled by a single server — or even a hundred servers. The gateway tier must be horizontally scalable, and coordination between gateway servers (for routing messages to the right connections) requires a pub/sub layer.
+
+## Message Storage
+
+Discord's message history is a classic **time-series write workload**: messages are written in chronological order and read back in time ranges (e.g., "give me the 50 messages before message ID X"). This pattern is a perfect match for **Cassandra**.
+
+The messages table in Cassandra:
+
+```
+CREATE TABLE messages (
+  channel_id  BIGINT,
+  message_id  BIGINT,       -- Snowflake ID (time-sortable)
+  author_id   BIGINT,
+  content     TEXT,
+  edited_at   TIMESTAMP,
+  PRIMARY KEY (channel_id, message_id)
+) WITH CLUSTERING ORDER BY (message_id DESC);
+```
+
+**Why Cassandra?**
+
+- **Write optimization**: Cassandra's LSM tree storage writes are sequential appends — extremely fast. 46,000 writes/sec across a Cassandra cluster is comfortable.
+- **Horizontal scaling**: Cassandra shards data across nodes automatically using consistent hashing. Add nodes to increase capacity linearly.
+- **Time-series fit**: partitioning by `channel_id` and clustering by `message_id` means all messages in a channel are stored together and sorted by time. Reading the last 50 messages is a single range scan on a single partition.
+- **No single point of failure**: Cassandra's masterless architecture (all nodes are equal peers) eliminates the single-master bottleneck common in relational databases.
+
+The partition key is `channel_id`. In a very high-volume channel, a single Cassandra partition can grow large. Discord solved this by introducing a **bucket** concept: the partition key becomes `(channel_id, bucket)` where `bucket = message_id / MESSAGES_PER_BUCKET`. This caps partition size and prevents hot partitions.
+
+## Real-Time Messaging
+
+When a user sends a message, it must be delivered to every connected client in that channel within milliseconds. This requires a **persistent connection** from each client to the server — HTTP request-response is too slow and too stateful to set up per-message.
+
+**WebSockets** provide the persistent, bidirectional connection. Each Discord client opens a WebSocket connection to a **gateway server** when it starts. The gateway maintains the connection for the session lifetime.
+
+The delivery flow:
+1. Client A sends a message over its WebSocket to the gateway server it is connected to (Gateway 1).
+2. Gateway 1 validates and stores the message in Cassandra.
+3. Gateway 1 publishes an event to a **pub/sub system** (Redis Pub/Sub or NATS): topic = `channel:{channel_id}`, payload = message content.
+4. Every gateway server that has at least one subscriber to `channel:{channel_id}` receives the pub/sub event.
+5. Each notified gateway server pushes the message over WebSocket to its connected clients who are in that channel.
+
+The pub/sub layer solves the **cross-gateway delivery problem**: the sender's client may be connected to Gateway 1, but the recipient's client may be connected to Gateway 2 or Gateway 47. Without pub/sub, Gateway 1 would have no way to reach the recipient. With pub/sub, any gateway can publish an event and all other gateways subscribed to that channel will receive it and push to their connections.
+
+This architecture scales horizontally: add more gateway servers to handle more concurrent connections; the pub/sub fan-out handles cross-server delivery transparently.
+
+## Presence System
+
+Presence — knowing which users are online, idle, or offline — is a separate system from messaging. It has different data characteristics: it is **ephemeral** (presence state disappears when a user goes offline) and **high-churn** (hundreds of thousands of state changes per second as users connect and disconnect).
+
+**Implementation with Redis:**
+- When a user connects, write `SETEX presence:{user_id} 30 "online"` — a Redis key with a 30-second TTL.
+- The client sends a heartbeat every 10–15 seconds to refresh the TTL.
+- When the TTL expires (user closed the app, lost network), the key disappears and the user is treated as offline.
+- Other users subscribe to relevant presence topics via the pub/sub layer to receive real-time online/offline events.
+
+Why not store presence in Cassandra? Presence data is inherently short-lived and requires fast TTL support. Redis's in-memory storage and native TTL semantics are a far better fit than Cassandra for this pattern.
+
+**Scale consideration**: a user may share servers with thousands of other users. Broadcasting that user's presence change to all of them is expensive fan-out. Discord limits presence broadcast to users who explicitly share a server or have an active DM — not every user on the platform. This bounds the fan-out.
+
+## Read State
+
+Read state tracks the "last read" position in each channel for each user — the basis for the unread message indicator. When you open Discord and see a channel with a red dot, the app has compared your last-read message ID against the channel's latest message ID.
+
+The read state table:
+
+```sql
+CREATE TABLE read_state (
+  user_id     BIGINT,
+  channel_id  BIGINT,
+  last_message_id BIGINT,
+  mention_count   INT DEFAULT 0,
+  PRIMARY KEY (user_id, channel_id)
+);
+```
+
+A relational store (PostgreSQL) or even a key-value store (Redis with persistence) works here. The access pattern is simple: lookup by `(user_id, channel_id)`, update on scroll, read on app open.
+
+This table is written to frequently (every time a user reads a channel) but is low-risk — if a read state update is lost, the worst outcome is a spurious unread indicator, not lost messages.
+
+## Server Architecture
+
+Discord organizes users into "servers" (communities, called "guilds" internally). A guild can have hundreds of thousands of members. When a user opens a guild, Discord must:
+- Load the member list and their presence states.
+- Subscribe the user's gateway connection to all channels they have access to.
+- Track which gateway servers hold connections for which guild members.
+
+At Discord's scale, guild state cannot live on a single server. Discord shards guilds across a cluster of **guild servers** (internally called the "guild service"). Each guild is assigned to a specific shard based on its guild ID. The gateway server for a given connection knows which guild shard to contact for guild operations.
+
+This architecture means a member list lookup for a large guild is a call to one specific guild shard — predictable, not a broadcast. Message fan-out to a channel within a guild still goes through pub/sub, but guild membership queries are routed deterministically.
+
+**Snowflake IDs** underpin the distributed ID generation across all of Discord's services. A Snowflake ID is a 64-bit integer composed of:
+- 41 bits of millisecond timestamp (sufficient for ~69 years)
+- 10 bits of worker ID (supports 1024 concurrent ID generators)
+- 12 bits of sequence number (4096 IDs per millisecond per worker)
+
+The result is an ID that is globally unique, time-sortable (higher IDs are always more recent), and generated without any central coordination. Sorting messages by `message_id` is equivalent to sorting by `created_at` — which makes Cassandra's clustering key both an ordering column and a unique identifier in a single field.
