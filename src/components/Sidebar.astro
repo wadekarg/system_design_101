@@ -47,7 +47,7 @@ for (const sec of SECTIONS) {
   </a>
 
   <!-- Nav sections (scrollable) -->
-  <nav class="flex-1 overflow-y-auto py-4 px-3">
+  <nav id="sidebar-nav" class="flex-1 overflow-y-auto py-4 px-3">
     {navData.map(({ section, label, icon, topics }) => (
       <div class="mb-4" data-section={section}>
         <button
@@ -123,11 +123,41 @@ for (const sec of SECTIONS) {
   // Highlight active link. Normalize away any trailing slash so it matches
   // the slash-free data-topic-link values (GitHub Pages adds a trailing slash).
   const currentPath = window.location.pathname.replace(/\/$/, '');
+  let activeLink: Element | null = null;
   document.querySelectorAll('[data-topic-link]').forEach((a) => {
     if (a.getAttribute('data-topic-link') === currentPath) {
       a.classList.add('active');
+      activeLink = a;
     }
   });
+
+  // Preserve the sidebar's scroll position across page navigations. Because
+  // this is a multi-page site, every link click is a full page load, so the
+  // scrollable nav would otherwise reset to the top and lose the user's place.
+  const nav = document.getElementById('sidebar-nav');
+  const NAV_SCROLL_KEY = 'sd101_nav_scroll';
+  if (nav) {
+    // Restore the saved position; if none, bring the active link into view.
+    const saved = sessionStorage.getItem(NAV_SCROLL_KEY);
+    if (saved !== null) {
+      nav.scrollTop = parseInt(saved, 10) || 0;
+    } else if (activeLink) {
+      (activeLink as HTMLElement).scrollIntoView({ block: 'center' });
+    }
+    // Keep the saved position current as the user scrolls the nav.
+    nav.addEventListener(
+      'scroll',
+      () => sessionStorage.setItem(NAV_SCROLL_KEY, String(nav.scrollTop)),
+      { passive: true }
+    );
+    // Snapshot the position the instant a topic link is clicked, so the next
+    // page restores exactly where the list was.
+    nav.querySelectorAll('[data-topic-link]').forEach((a) => {
+      a.addEventListener('click', () =>
+        sessionStorage.setItem(NAV_SCROLL_KEY, String(nav.scrollTop))
+      );
+    });
+  }
 
   // Mark completed links
   document.querySelectorAll('[data-topic-link]').forEach((a) => {
