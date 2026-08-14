@@ -20,3 +20,10 @@ pnpm-debug.log*
 
 # macOS-specific
 .DS_Store
+
+# local-only planning docs (never push)
+docs/superpowers/
+docs/ARCHITECTURE.md
+
+# SDD workspace (local ledger/artifacts)
+.superpowers/
