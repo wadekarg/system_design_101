@@ -10,6 +10,9 @@ const topicSchema = z.object({
   diagram: z.string(),
   relatedTopics: z.array(z.string()).default([]),
   isCaseStudy: z.boolean().default(false),
+  takeaways: z.array(z.string()).optional(),
+  interviewTips: z.array(z.string()).optional(),
+  problemStatement: z.string().optional(),
 });
 
 export const collections = {

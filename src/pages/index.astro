@@ -1,17 +1,118 @@
 ---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SECTIONS, TOTAL_TOPICS } from '../data/curriculum';
+const base = import.meta.env.BASE_URL;
 
+const sectionFirstSlugs: Record<string, string> = {
+  fundamentals: 'computer-architecture',
+  'building-blocks': 'load-balancing',
+  patterns: 'rate-limiting',
+  'case-studies': 'tinyurl',
+  'interview-prep': 'how-to-approach',
+};
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<BaseLayout title="Home">
+  <div class="max-w-content mx-auto px-6 py-16">
+    <!-- Hero -->
+    <header class="text-center mb-16">
+      <span class="text-xs font-semibold uppercase tracking-widest text-accent bg-accent-light px-3 py-1 rounded-full">Free & Open Source</span>
+      <h1 class="text-5xl font-bold text-text-primary mt-5 mb-4 leading-tight">
+        System Design<br /><span class="text-accent">101</span>
+      </h1>
+      <p class="text-lg text-text-secondary max-w-xl mx-auto mb-8">
+        Learn system design from zero to interview-ready. {TOTAL_TOPICS} topics with visual diagrams, real case studies, and interview tips. Completely free.
+      </p>
+      <div class="flex items-center justify-center gap-4">
+        <a
+          href={`${base}fundamentals/computer-architecture`}
+          class="bg-accent hover:bg-accent-hover text-white font-semibold px-6 py-3 rounded-xl transition-colors"
+        >
+          Start Learning &rarr;
+        </a>
+        <a href="https://github.com/wadekarg/system_design_101" class="text-text-secondary hover:text-accent text-sm transition-colors">
+          View on GitHub
+        </a>
+      </div>
+    </header>
+
+    <!-- Overall progress (client-rendered) -->
+    <div class="mb-12 bg-white border border-border rounded-2xl p-5 shadow-sm">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-text-primary">Overall Progress</span>
+        <span id="home-progress-pct" class="text-sm font-bold text-accent">0 / {TOTAL_TOPICS} topics</span>
+      </div>
+      <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div id="home-progress-bar" class="h-full bg-accent rounded-full transition-all duration-500" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- Section cards -->
+    <div class="space-y-4">
+      {SECTIONS.map((sec) => (
+        <a
+          href={`${base}${sec.id}/${sectionFirstSlugs[sec.id]}`}
+          class="block bg-white border border-border rounded-2xl p-6 shadow-sm hover:border-accent hover:shadow-md transition-all group"
+        >
+          <div class="flex items-start gap-4">
+            <span class="text-3xl">{sec.icon}</span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between mb-1">
+                <h2 class="text-lg font-semibold text-text-primary group-hover:text-accent transition-colors">{sec.label}</h2>
+                <span class="text-xs text-text-secondary">{sec.topicCount} topics</span>
+              </div>
+              <p class="text-sm text-text-secondary mb-3">{sec.description}</p>
+              <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  class="h-full bg-accent rounded-full transition-all duration-500"
+                  id={`progress-${sec.id}`}
+                  style="width: 0%"
+                ></div>
+              </div>
+            </div>
+          </div>
+        </a>
+      ))}
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  // Calculate per-section progress from localStorage
+  // Topic paths follow pattern: /system_design_101/{section}/{slug}
+
+  function calcProgress() {
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith('sd101_complete_'));
+    const done = keys.filter((k) => localStorage.getItem(k) === '1').length;
+    const total = 38;
+
+    const bar = document.getElementById('home-progress-bar');
+    const pct = document.getElementById('home-progress-pct');
+    if (bar) bar.style.width = `${Math.round((done / total) * 100)}%`;
+    if (pct) pct.textContent = `${done} / ${total} topics`;
+
+    const sectionCounts: Record<string, { done: number; total: number }> = {
+      fundamentals: { done: 0, total: 6 },
+      'building-blocks': { done: 0, total: 10 },
+      patterns: { done: 0, total: 8 },
+      'case-studies': { done: 0, total: 10 },
+      'interview-prep': { done: 0, total: 4 },
+    };
+
+    keys.forEach((k) => {
+      if (localStorage.getItem(k) !== '1') return;
+      for (const sec of Object.keys(sectionCounts)) {
+        if (k.includes(`/${sec}/`)) {
+          sectionCounts[sec].done++;
+        }
+      }
+    });
+
+    for (const [sec, { done, total }] of Object.entries(sectionCounts)) {
+      const el = document.getElementById(`progress-${sec}`);
+      if (el) el.style.width = `${Math.round((done / total) * 100)}%`;
+    }
+  }
+
+  calcProgress();
+</script>

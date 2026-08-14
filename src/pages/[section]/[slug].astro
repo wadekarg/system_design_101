@@ -1,0 +1,73 @@
+---
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import TopicLayout from '../../layouts/TopicLayout.astro';
+import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
+
+type Section = 'fundamentals' | 'building-blocks' | 'patterns' | 'case-studies' | 'interview-prep';
+
+export async function getStaticPaths() {
+  const sections: Section[] = ['fundamentals', 'building-blocks', 'patterns', 'case-studies', 'interview-prep'];
+  const allPaths: any[] = [];
+
+  for (const section of sections) {
+    const entries = await getCollection(section as any);
+    const sorted = entries.sort((a: any, b: any) => a.data.order - b.data.order);
+
+    sorted.forEach((entry: any, idx: number) => {
+      const prev = sorted[idx - 1];
+      const next = sorted[idx + 1];
+      allPaths.push({
+        params: { section, slug: entry.id },
+        props: {
+          entry,
+          section,
+          prevTopic: prev
+            ? { title: prev.data.title, href: `${section}/${prev.id}` }
+            : undefined,
+          nextTopic: next
+            ? { title: next.data.title, href: `${section}/${next.id}` }
+            : undefined,
+        },
+      });
+    });
+  }
+
+  return allPaths;
+}
+
+const { entry, section, prevTopic, nextTopic } = Astro.props;
+const { Content } = await render(entry);
+const data = entry.data;
+---
+
+{data.isCaseStudy ? (
+  <CaseStudyLayout
+    title={data.title}
+    description={data.description}
+    difficulty={data.difficulty}
+    readTime={data.readTime}
+    diagram={data.diagram}
+    relatedTopics={data.relatedTopics}
+    takeaways={data.takeaways ?? []}
+    interviewTips={data.interviewTips ?? []}
+    problemStatement={data.problemStatement ?? ''}
+    prevTopic={prevTopic}
+    nextTopic={nextTopic}
+  >
+    <Content />
+  </CaseStudyLayout>
+) : (
+  <TopicLayout
+    title={data.title}
+    description={data.description}
+    difficulty={data.difficulty}
+    readTime={data.readTime}
+    diagram={data.diagram}
+    relatedTopics={data.relatedTopics}
+    takeaways={data.takeaways ?? []}
+    prevTopic={prevTopic}
+    nextTopic={nextTopic}
+  >
+    <Content />
+  </TopicLayout>
+)}
