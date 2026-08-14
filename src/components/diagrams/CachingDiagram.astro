@@ -1,5 +1,126 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @keyframes showHit {
+      0%,2%   { opacity: 0; }
+      8%,40%  { opacity: 1; }
+      48%,100%{ opacity: 0; }
+    }
+    @keyframes showMiss {
+      0%,48%  { opacity: 0; }
+      55%,88% { opacity: 1; }
+      95%,100%{ opacity: 0; }
+    }
+    .hit-group  { animation: showHit  8s ease-in-out infinite; opacity: 0; }
+    .miss-group { animation: showMiss 8s ease-in-out infinite; opacity: 0; }
+    @keyframes flashHit {
+      0%,2%   { fill: #F8FAFC; }
+      8%,40%  { fill: #DCFCE7; }
+      48%,100%{ fill: #F8FAFC; }
+    }
+    @keyframes flashMiss {
+      0%,48%  { fill: #F8FAFC; }
+      55%,88% { fill: #FEF9C3; }
+      95%,100%{ fill: #F8FAFC; }
+    }
+    .cache-hit-bg  { animation: flashHit  8s ease-in-out infinite; }
+    .cache-miss-bg { animation: flashMiss 8s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+  <defs>
+    <marker id="ag" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#16A34A"/>
+    </marker>
+    <marker id="agl" markerWidth="7" markerHeight="5" refX="0" refY="2.5" orient="auto">
+      <polygon points="7 0,0 2.5,7 5" fill="#16A34A"/>
+    </marker>
+    <marker id="ao" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#D97706"/>
+    </marker>
+    <marker id="aol" markerWidth="7" markerHeight="5" refX="0" refY="2.5" orient="auto">
+      <polygon points="7 0,0 2.5,7 5" fill="#D97706"/>
+    </marker>
+    <marker id="ared" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#DC2626"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="300" y="22" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1E293B" text-anchor="middle">Cache HIT vs Cache MISS</text>
+
+  <!-- ===== TOP PATH: Cache HIT ===== -->
+  <text x="20" y="56" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#16A34A">Cache HIT</text>
+
+  <!-- Client (top) -->
+  <rect x="20" y="65" width="80" height="40" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="60" y="82" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B" text-anchor="middle">Client</text>
+  <text x="60" y="97" font-family="system-ui,sans-serif" font-size="9" fill="#64748B" text-anchor="middle">request</text>
+
+  <!-- Cache (top) -->
+  <rect class="cache-hit-bg" x="210" y="65" width="100" height="40" rx="6" stroke="#16A34A" stroke-width="2"/>
+  <text x="260" y="82" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#15803D" text-anchor="middle">Cache</text>
+  <text x="260" y="97" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">Redis / Memcached</text>
+
+  <!-- HIT group: arrows -->
+  <g class="hit-group">
+    <!-- Client → Cache -->
+    <line x1="102" y1="82" x2="208" y2="82" stroke="#16A34A" stroke-width="2" marker-end="url(#ag)"/>
+    <text x="154" y="76" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">GET key</text>
+    <!-- Cache → Client (return) -->
+    <line x1="208" y1="95" x2="102" y2="95" stroke="#16A34A" stroke-width="2.5" marker-end="url(#agl)"/>
+    <text x="154" y="108" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">⚡ fast! data returned</text>
+    <!-- HIT badge -->
+    <rect x="328" y="70" width="60" height="28" rx="14" fill="#16A34A"/>
+    <text x="358" y="88" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white" text-anchor="middle">HIT ✓</text>
+    <!-- Speed note -->
+    <text x="420" y="82" font-family="system-ui,sans-serif" font-size="10" fill="#16A34A" font-weight="600">~1 ms</text>
+    <text x="420" y="96" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">No DB needed</text>
+  </g>
+
+  <!-- ===== SEPARATOR ===== -->
+  <line x1="20" y1="138" x2="580" y2="138" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="6,4"/>
+
+  <!-- ===== BOTTOM PATH: Cache MISS ===== -->
+  <text x="20" y="162" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#D97706">Cache MISS</text>
+
+  <!-- Client (bottom) -->
+  <rect x="20" y="172" width="80" height="40" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="60" y="189" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B" text-anchor="middle">Client</text>
+  <text x="60" y="204" font-family="system-ui,sans-serif" font-size="9" fill="#64748B" text-anchor="middle">request</text>
+
+  <!-- Cache (bottom) -->
+  <rect class="cache-miss-bg" x="180" y="172" width="100" height="40" rx="6" stroke="#FCD34D" stroke-width="2"/>
+  <text x="230" y="189" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#92400E" text-anchor="middle">Cache</text>
+  <text x="230" y="204" font-family="system-ui,sans-serif" font-size="9" fill="#D97706" text-anchor="middle">empty / stale</text>
+
+  <!-- DB -->
+  <rect x="370" y="172" width="80" height="40" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="410" y="189" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B" text-anchor="middle">Database</text>
+  <text x="410" y="204" font-family="system-ui,sans-serif" font-size="9" fill="#64748B" text-anchor="middle">PostgreSQL</text>
+
+  <!-- MISS group: arrows -->
+  <g class="miss-group">
+    <!-- Client → Cache (dashed miss) -->
+    <line x1="102" y1="185" x2="178" y2="185" stroke="#DC2626" stroke-width="1.8" stroke-dasharray="5,3" marker-end="url(#ared)"/>
+    <text x="140" y="180" font-family="system-ui,sans-serif" font-size="8" fill="#DC2626" text-anchor="middle">MISS</text>
+    <!-- Cache → DB -->
+    <line x1="282" y1="192" x2="368" y2="192" stroke="#D97706" stroke-width="2" marker-end="url(#ao)"/>
+    <text x="325" y="187" font-family="system-ui,sans-serif" font-size="8" fill="#D97706" text-anchor="middle">fetch</text>
+    <!-- DB → Cache (fill) -->
+    <line x1="368" y1="205" x2="282" y2="205" stroke="#D97706" stroke-width="2" marker-end="url(#aol)"/>
+    <text x="325" y="218" font-family="system-ui,sans-serif" font-size="8" fill="#D97706" text-anchor="middle">store &amp; return</text>
+    <!-- Cache → Client -->
+    <line x1="178" y1="215" x2="102" y2="215" stroke="#D97706" stroke-width="2" marker-end="url(#aol)"/>
+    <!-- Speed note -->
+    <text x="490" y="189" font-family="system-ui,sans-serif" font-size="10" fill="#D97706" font-weight="600">~100 ms</text>
+    <text x="490" y="203" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">DB round trip</text>
+    <text x="490" y="217" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">then cached</text>
+  </g>
+
+  <text x="300" y="272" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Alternates: HIT path → MISS path — showing the cache-aside pattern</text>
+</svg>
 </div>

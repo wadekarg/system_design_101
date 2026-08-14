@@ -1,5 +1,159 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="dt-arr-ind" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#4F46E5"/>
+    </marker>
+    <marker id="dt-arr-grn" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#16A34A"/>
+    </marker>
+    <marker id="dt-arr-blu" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#0284C7"/>
+    </marker>
+  </defs>
+  <style>
+    /* 12s cycle: Phase1 0-4s, Phase2 4-8s, Phase3 8-12s */
+
+    /* Phase 1: PREPARE — coordinator fans out to all 3 participants */
+    @keyframes dt-p1-1 {
+      0%   { stroke-dashoffset:120; opacity:0; }
+      5%   { opacity:1; }
+      25%  { stroke-dashoffset:0; opacity:1; }
+      30%  { opacity:0; }
+      100% { opacity:0; stroke-dashoffset:0; }
+    }
+    @keyframes dt-label-p1 {
+      0%   { opacity:0; }
+      8%   { opacity:1; }
+      30%  { opacity:1; }
+      35%  { opacity:0; }
+      100% { opacity:0; }
+    }
+
+    /* Phase 2: YES — participants fan back to coordinator */
+    @keyframes dt-p2-1 {
+      0%,33%  { stroke-dashoffset:120; opacity:0; }
+      38%     { opacity:1; }
+      58%     { stroke-dashoffset:0; opacity:1; }
+      63%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+    @keyframes dt-label-p2 {
+      0%,33%  { opacity:0; }
+      40%     { opacity:1; }
+      60%     { opacity:1; }
+      65%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+
+    /* Phase 3: COMMIT — coordinator fans out again */
+    @keyframes dt-p3-1 {
+      0%,66%  { stroke-dashoffset:120; opacity:0; }
+      71%     { opacity:1; }
+      90%     { stroke-dashoffset:0; opacity:1; }
+      95%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+    @keyframes dt-label-p3 {
+      0%,66%  { opacity:0; }
+      73%     { opacity:1; }
+      92%     { opacity:1; }
+      97%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+
+    @keyframes dt-coord-pulse {
+      0%,100% { filter:brightness(1); }
+      33%     { filter:brightness(1.15); }
+      66%     { filter:brightness(1.1); }
+    }
+
+    .dt-p1-line { stroke-dasharray:120; animation: dt-p1-1 12s linear infinite; }
+    .dt-p2-line { stroke-dasharray:120; animation: dt-p2-1 12s linear infinite; }
+    .dt-p3-line { stroke-dasharray:120; animation: dt-p3-1 12s linear infinite; }
+    .dt-lbl1 { animation: dt-label-p1 12s linear infinite; }
+    .dt-lbl2 { animation: dt-label-p2 12s linear infinite; }
+    .dt-lbl3 { animation: dt-label-p3 12s linear infinite; }
+    .dt-coord { animation: dt-coord-pulse 12s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="24" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">Two-Phase Commit (2PC)</text>
+
+  <!-- Coordinator (top center) -->
+  <g class="dt-coord">
+    <rect x="220" y="34" width="160" height="52" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="2"/>
+    <text x="300" y="58"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="white">Coordinator</text>
+    <text x="300" y="75"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#C7D2FE">Transaction Manager</text>
+  </g>
+
+  <!-- Participants (bottom row) -->
+  <rect x="24"  y="178" width="130" height="52" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="89"  y="202" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Participant 1</text>
+  <text x="89"  y="218" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Orders DB</text>
+
+  <rect x="234" y="178" width="132" height="52" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="300" y="202" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Participant 2</text>
+  <text x="300" y="218" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Inventory DB</text>
+
+  <rect x="446" y="178" width="130" height="52" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="511" y="202" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Participant 3</text>
+  <text x="511" y="218" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Payment DB</text>
+
+  <!-- Static guide lines (faint) -->
+  <line x1="246" y1="86" x2="89"  y2="178" stroke="#E2E8F0" stroke-width="1"/>
+  <line x1="300" y1="86" x2="300" y2="178" stroke="#E2E8F0" stroke-width="1"/>
+  <line x1="354" y1="86" x2="511" y2="178" stroke="#E2E8F0" stroke-width="1"/>
+
+  <!-- Phase 1: PREPARE (indigo, down) -->
+  <line x1="246" y1="86" x2="89"  y2="176" stroke="#4F46E5" stroke-width="2.5" class="dt-p1-line" marker-end="url(#dt-arr-ind)"/>
+  <line x1="300" y1="86" x2="300" y2="176" stroke="#4F46E5" stroke-width="2.5" class="dt-p1-line" marker-end="url(#dt-arr-ind)" style="animation-delay:0.3s"/>
+  <line x1="354" y1="86" x2="511" y2="176" stroke="#4F46E5" stroke-width="2.5" class="dt-p1-line" marker-end="url(#dt-arr-ind)" style="animation-delay:0.6s"/>
+
+  <!-- Phase 1 label -->
+  <g class="dt-lbl1">
+    <rect x="130" y="115" width="80" height="20" rx="4" fill="#EEF2FF"/>
+    <text x="170" y="129" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#4F46E5">PREPARE</text>
+  </g>
+
+  <!-- Phase 2: YES (green, up) -->
+  <line x1="89"  y1="178" x2="246" y2="88" stroke="#16A34A" stroke-width="2.5" class="dt-p2-line" marker-end="url(#dt-arr-grn)"/>
+  <line x1="300" y1="178" x2="300" y2="88" stroke="#16A34A" stroke-width="2.5" class="dt-p2-line" marker-end="url(#dt-arr-grn)" style="animation-delay:0.3s"/>
+  <line x1="511" y1="178" x2="354" y2="88" stroke="#16A34A" stroke-width="2.5" class="dt-p2-line" marker-end="url(#dt-arr-grn)" style="animation-delay:0.6s"/>
+
+  <!-- Phase 2 label -->
+  <g class="dt-lbl2">
+    <rect x="352" y="115" width="48" height="20" rx="4" fill="#F0FDF4"/>
+    <text x="376" y="129" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#16A34A">YES</text>
+  </g>
+
+  <!-- Phase 3: COMMIT (blue, down) -->
+  <line x1="246" y1="86" x2="89"  y2="176" stroke="#0284C7" stroke-width="2.5" class="dt-p3-line" marker-end="url(#dt-arr-blu)"/>
+  <line x1="300" y1="86" x2="300" y2="176" stroke="#0284C7" stroke-width="2.5" class="dt-p3-line" marker-end="url(#dt-arr-blu)" style="animation-delay:0.3s"/>
+  <line x1="354" y1="86" x2="511" y2="176" stroke="#0284C7" stroke-width="2.5" class="dt-p3-line" marker-end="url(#dt-arr-blu)" style="animation-delay:0.6s"/>
+
+  <!-- Phase 3 label -->
+  <g class="dt-lbl3">
+    <rect x="220" y="115" width="60" height="20" rx="4" fill="#E0F2FE"/>
+    <text x="250" y="129" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#0284C7">COMMIT</text>
+  </g>
+
+  <!-- Phase indicator boxes -->
+  <rect x="12" y="148" width="68" height="18" rx="4" fill="#EEF2FF"/>
+  <text x="46" y="161" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" font-weight="700" fill="#4F46E5" class="dt-lbl1">Phase 1</text>
+  <rect x="12" y="148" width="68" height="18" rx="4" fill="#F0FDF4"/>
+  <text x="46" y="161" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" font-weight="700" fill="#16A34A" class="dt-lbl2">Phase 2</text>
+  <rect x="12" y="148" width="68" height="18" rx="4" fill="#E0F2FE"/>
+  <text x="46" y="161" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" font-weight="700" fill="#0284C7" class="dt-lbl3">Phase 3</text>
+
+  <!-- Footer -->
+  <rect x="10" y="242" width="580" height="30" rx="6" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="300" y="258" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#475569">Phase 1: PREPARE — Phase 2: ACK (YES/NO) — Phase 3: COMMIT or ROLLBACK. All or nothing.</text>
+</svg>
 </div>

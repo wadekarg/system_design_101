@@ -1,5 +1,147 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .bf-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  .bf-code { font-family: monospace; font-size: 10px; fill: #1E293B; }
+  /* Hash arrow animations */
+  .h1-arrow { animation: h1Appear 4s ease-in-out infinite; }
+  .h2-arrow { animation: h2Appear 4s ease-in-out infinite; animation-delay: 0.6s; }
+  .h3-arrow { animation: h3Appear 4s ease-in-out infinite; animation-delay: 1.2s; }
+  /* Bit flip animations */
+  .bit-3-flip { animation: bitFlip 4s ease-in-out infinite; animation-delay: 0.3s; }
+  .bit-7-flip { animation: bitFlip 4s ease-in-out infinite; animation-delay: 0.9s; }
+  .bit-11-flip { animation: bitFlip 4s ease-in-out infinite; animation-delay: 1.5s; }
+  @keyframes h1Appear {
+    0%, 5% { opacity: 0; stroke-dashoffset: 60; }
+    20%, 45% { opacity: 1; stroke-dashoffset: 0; }
+    60%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
+  }
+  @keyframes h2Appear {
+    0%, 5% { opacity: 0; stroke-dashoffset: 60; }
+    20%, 45% { opacity: 1; stroke-dashoffset: 0; }
+    60%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
+  }
+  @keyframes h3Appear {
+    0%, 5% { opacity: 0; stroke-dashoffset: 60; }
+    20%, 45% { opacity: 1; stroke-dashoffset: 0; }
+    60%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
+  }
+  @keyframes bitFlip {
+    0%, 10% { fill: #F8FAFC; }
+    30%, 70% { fill: #4F46E5; }
+    80%, 100% { fill: #4F46E5; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="300" y="26" text-anchor="middle" font-family="system-ui" font-size="15" font-weight="800" fill="#1E293B">Bloom Filter — Probabilistic Data Structure</text>
+
+<!-- BIT ARRAY at top (12 boxes) -->
+<text x="300" y="46" text-anchor="middle" class="bf-label" font-weight="600">Bit Array (m = 12 bits)</text>
+
+<!-- Bit boxes: each 40px wide, starting x=30, y=52 -->
+<!-- Positions: 0=30, 1=72, 2=114, 3=156(flip), 4=198, 5=240, 6=282, 7=324(flip), 8=366, 9=408, 10=450, 11=492(flip) -->
+<!-- Bit 0 = 0 -->
+<rect x="30" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="49" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">0</text>
+<text x="49" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 1 = 0 -->
+<rect x="72" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="91" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">1</text>
+<text x="91" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 2 = 0 -->
+<rect x="114" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="133" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">2</text>
+<text x="133" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 3 = FLIP (H1 sets it) -->
+<rect x="156" y="54" width="38" height="32" rx="4" stroke="#4F46E5" stroke-width="2" class="bit-3-flip"/>
+<text x="175" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">3</text>
+<text x="175" y="80" text-anchor="middle" font-family="monospace" font-size="12" fill="white" font-weight="800">1</text>
+<!-- Bit 4 = 0 -->
+<rect x="198" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="217" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">4</text>
+<text x="217" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 5 = 0 -->
+<rect x="240" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="259" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">5</text>
+<text x="259" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 6 = 0 -->
+<rect x="282" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="301" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">6</text>
+<text x="301" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 7 = FLIP (H2 sets it) -->
+<rect x="324" y="54" width="38" height="32" rx="4" stroke="#4F46E5" stroke-width="2" class="bit-7-flip"/>
+<text x="343" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">7</text>
+<text x="343" y="80" text-anchor="middle" font-family="monospace" font-size="12" fill="white" font-weight="800">1</text>
+<!-- Bit 8 = 0 -->
+<rect x="366" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="385" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">8</text>
+<text x="385" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 9 = 0 -->
+<rect x="408" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="427" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">9</text>
+<text x="427" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 10 = 0 -->
+<rect x="450" y="54" width="38" height="32" rx="4" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="469" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="#94A3B8">10</text>
+<text x="469" y="80" text-anchor="middle" font-family="monospace" font-size="11" fill="#94A3B8">0</text>
+<!-- Bit 11 = FLIP (H3 sets it) -->
+<rect x="492" y="54" width="38" height="32" rx="4" stroke="#4F46E5" stroke-width="2" class="bit-11-flip"/>
+<text x="511" y="66" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">11</text>
+<text x="511" y="80" text-anchor="middle" font-family="monospace" font-size="12" fill="white" font-weight="800">1</text>
+
+<!-- HASH FUNCTIONS (middle section) -->
+<text x="300" y="110" text-anchor="middle" class="bf-label" font-weight="700">ADD element "alice" → run 3 hash functions</text>
+
+<!-- Element input -->
+<rect x="238" y="116" width="124" height="26" rx="6" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1.5"/>
+<text x="300" y="133" text-anchor="middle" font-family="monospace" font-size="11" fill="#4F46E5" font-weight="700">"alice"</text>
+
+<!-- H1 box -->
+<rect x="50" y="148" width="60" height="24" rx="5" fill="#4F46E5"/>
+<text x="80" y="164" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="800" fill="white">H1</text>
+<!-- H1 → bit 3 arrow -->
+<path d="M 300,142 Q 80,145 80,145" fill="none" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="30" class="h1-arrow"/>
+<line x1="80" y1="148" x2="80" y2="158" stroke="#4F46E5" stroke-width="1.5"/>
+<path d="M 80,148 L 175,86" fill="none" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="4,3" class="h1-arrow"/>
+<polygon points="173,82 180,90 168,88" fill="#4F46E5" class="h1-arrow"/>
+<text x="80" y="180" text-anchor="middle" class="bf-label" fill="#4F46E5">→ bit 3</text>
+
+<!-- H2 box -->
+<rect x="270" y="148" width="60" height="24" rx="5" fill="#4F46E5"/>
+<text x="300" y="164" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="800" fill="white">H2</text>
+<path d="M 300,142 L 300,148" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+<path d="M 300,148 L 343,86" fill="none" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="4,3" class="h2-arrow"/>
+<polygon points="341,82 348,90 336,88" fill="#4F46E5" class="h2-arrow"/>
+<text x="300" y="180" text-anchor="middle" class="bf-label" fill="#4F46E5">→ bit 7</text>
+
+<!-- H3 box -->
+<rect x="490" y="148" width="60" height="24" rx="5" fill="#4F46E5"/>
+<text x="520" y="164" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="800" fill="white">H3</text>
+<path d="M 300,142 Q 520,145 520,145" fill="none" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="30" class="h3-arrow"/>
+<line x1="520" y1="148" x2="520" y2="158" stroke="#4F46E5" stroke-width="1.5"/>
+<path d="M 520,148 L 511,86" fill="none" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="4,3" class="h3-arrow"/>
+<polygon points="509,82 516,90 504,88" fill="#4F46E5" class="h3-arrow"/>
+<text x="520" y="180" text-anchor="middle" class="bf-label" fill="#4F46E5">→ bit 11</text>
+
+<!-- BOTTOM: Query results -->
+<line x1="12" y1="196" x2="588" y2="196" stroke="#E2E8F0" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+<!-- QUERY section bottom-left -->
+<rect x="20" y="204" width="250" height="64" rx="7" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1.5"/>
+<text x="145" y="220" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#15803D">QUERY result: bits 3,7,11 are 1</text>
+<text x="145" y="236" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="800" fill="#16A34A">Maybe in set &#10003;</text>
+<text x="145" y="252" text-anchor="middle" class="bf-label" fill="#15803D">All bits set → element probably exists</text>
+<text x="145" y="264" text-anchor="middle" class="bf-label" fill="#15803D">(false positive possible)</text>
+
+<!-- QUERY section bottom-right -->
+<rect x="330" y="204" width="258" height="64" rx="7" fill="#FFF1F2" stroke="#FECDD3" stroke-width="1.5"/>
+<text x="459" y="220" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#9F1239">QUERY result: any bit is 0</text>
+<text x="459" y="236" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="800" fill="#DC2626">Definitely NOT in set &#10007;</text>
+<text x="459" y="252" text-anchor="middle" class="bf-label" fill="#9F1239">One clear bit → impossible to be present</text>
+<text x="459" y="264" text-anchor="middle" class="bf-label" fill="#9F1239">(no false negatives)</text>
+</svg>
 </div>

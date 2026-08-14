@@ -1,5 +1,113 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="dc-arr" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="dc-arr-acc" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#4F46E5"/>
+    </marker>
+    <marker id="dc-arr-grn" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#16A34A"/>
+    </marker>
+  </defs>
+  <style>
+    /* Message travels: Client1→WS Gateway→Broker→Gateway2→Client2 */
+    /* 5s cycle */
+    @keyframes dc-msg {
+      0%   { opacity:0; }
+      4%   { opacity:1; }
+      80%  { opacity:1; }
+      90%  { opacity:0; }
+      100% { opacity:0; }
+    }
+    /* Presence pulse on both gateways */
+    @keyframes dc-presence {
+      0%,100% { opacity:0.4; stroke-width:1; }
+      50%     { opacity:1;   stroke-width:2.5; }
+    }
+    @keyframes dc-broker-glow {
+      0%,100% { opacity:1; }
+      30%     { opacity:0.8; transform:scale(1.03); }
+    }
+
+    .dc-msg      { animation: dc-msg      5s linear infinite; }
+    .dc-presence { animation: dc-presence 2s ease-in-out infinite; }
+    .dc-broker   { animation: dc-broker-glow 5s ease-in-out infinite; transform-origin: 300px 110px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">Discord — Real-time Messaging</text>
+
+  <!-- ── Client 1 ── -->
+  <rect x="10" y="80" width="74" height="60" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <circle cx="47" cy="98" r="9" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <path d="M33 118 Q33 108 47 108 Q61 108 61 118" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <text x="47" y="130" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="700" fill="#1E293B">Client 1</text>
+
+  <!-- Arrow: Client1→WS Gateway -->
+  <line x1="84" y1="110" x2="118" y2="110" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#dc-arr)"/>
+  <text x="101" y="103" text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#64748B">WS</text>
+
+  <!-- ── WS Gateway 1 ── -->
+  <rect x="120" y="80" width="100" height="60" rx="7" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.5"/>
+  <text x="170" y="104" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#4F46E5">WebSocket</text>
+  <text x="170" y="118" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#4F46E5">Gateway</text>
+  <text x="170" y="132" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#6366F1">persistent conn</text>
+
+  <!-- Arrow: Gateway1→Broker -->
+  <line x1="220" y1="110" x2="252" y2="110" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#dc-arr)"/>
+
+  <!-- ── Message Broker (Pub/Sub) ── -->
+  <g class="dc-broker">
+    <rect x="254" y="78" width="92" height="64" rx="7" fill="#4F46E5" stroke="#3730A3" stroke-width="2"/>
+    <text x="300" y="102" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white">Message</text>
+    <text x="300" y="116" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white">Broker</text>
+    <text x="300" y="132" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#C7D2FE">Pub/Sub</text>
+  </g>
+
+  <!-- Arrow: Broker→Gateway2 -->
+  <line x1="346" y1="110" x2="378" y2="110" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#dc-arr)"/>
+
+  <!-- ── WS Gateway 2 ── -->
+  <rect x="380" y="80" width="100" height="60" rx="7" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.5"/>
+  <text x="430" y="104" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#4F46E5">Gateway</text>
+  <text x="430" y="118" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#4F46E5">Server 2</text>
+  <text x="430" y="132" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#6366F1">persistent conn</text>
+
+  <!-- Arrow: Gateway2→Client2 -->
+  <line x1="480" y1="110" x2="516" y2="110" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#dc-arr)"/>
+
+  <!-- ── Client 2 ── -->
+  <rect x="518" y="80" width="70" height="60" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <circle cx="553" cy="98" r="9" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <path d="M539 118 Q539 108 553 108 Q567 108 567 118" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <text x="553" y="130" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="700" fill="#1E293B">Client 2</text>
+
+  <!-- ── Presence Service (below) ── -->
+  <rect x="186" y="188" width="228" height="48" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="300" y="210" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#16A34A">Presence Service</text>
+  <text x="300" y="226" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">online/offline heartbeat · last seen</text>
+
+  <!-- Presence connections to gateways (pulsing dashed lines) -->
+  <line x1="170" y1="140" x2="220" y2="188" stroke="#16A34A" stroke-width="1.5" stroke-dasharray="4 3" class="dc-presence"/>
+  <line x1="430" y1="140" x2="380" y2="188" stroke="#16A34A" stroke-width="1.5" stroke-dasharray="4 3" class="dc-presence" style="animation-delay:1s"/>
+
+  <!-- ── Animated message dot ── -->
+  <!-- Client1→Gateway1→Broker→Gateway2→Client2 -->
+  <circle r="5.5" fill="#4F46E5" class="dc-msg">
+    <animate attributeName="cx" values="47;47;170;300;430;553;553" keyTimes="0;0.04;0.24;0.46;0.64;0.80;1" dur="5s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="110;110;110;110;110;110;110" keyTimes="0;0.04;0.24;0.46;0.64;0.80;1" dur="5s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Routing label -->
+  <rect x="10" y="248" width="580" height="26" rx="5" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="300" y="265" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#475569">Guild → Channel → Message routing · Messages persist to Cassandra · Voice via WebRTC</text>
+</svg>
 </div>

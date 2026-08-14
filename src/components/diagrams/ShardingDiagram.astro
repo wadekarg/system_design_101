@@ -1,5 +1,101 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .shard-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  .key1-anim { animation: keyMove 3s ease-in-out infinite; }
+  .key2-anim { animation: keyMove 3s ease-in-out infinite; animation-delay: 1s; }
+  .key3-anim { animation: keyMove 3s ease-in-out infinite; animation-delay: 2s; }
+  .arr-a { animation: arrowLight 3s ease-in-out infinite; }
+  .arr-b { animation: arrowLight 3s ease-in-out infinite; animation-delay: 1s; }
+  .arr-c { animation: arrowLight 3s ease-in-out infinite; animation-delay: 2s; }
+  .hash-pulse { animation: hashPulse 1.5s ease-in-out infinite alternate; }
+  @keyframes keyMove {
+    0% { opacity: 0; transform: translateX(-80px); }
+    15% { opacity: 1; }
+    55% { opacity: 1; transform: translateX(0px); }
+    75% { opacity: 0; transform: translateX(0px); }
+    100% { opacity: 0; transform: translateX(-80px); }
+  }
+  @keyframes arrowLight {
+    0%, 40% { opacity: 0.25; }
+    60%, 85% { opacity: 1; }
+    100% { opacity: 0.25; }
+  }
+  @keyframes hashPulse {
+    from { filter: brightness(1); }
+    to { filter: brightness(1.15); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="300" y="26" text-anchor="middle" font-family="system-ui" font-size="15" font-weight="800" fill="#1E293B">Horizontal Sharding (Hash-based)</text>
+
+<!-- Incoming key pills (animated) -->
+<text x="55" y="52" text-anchor="middle" font-family="system-ui" font-size="10" fill="#64748B" font-weight="600">Incoming Keys</text>
+<g class="key1-anim">
+  <rect x="14" y="60" width="60" height="22" rx="11" fill="#4F46E5"/>
+  <text x="44" y="75" text-anchor="middle" font-family="monospace" font-size="10" fill="white">key_1</text>
+</g>
+<g class="key2-anim">
+  <rect x="14" y="112" width="60" height="22" rx="11" fill="#7C3AED"/>
+  <text x="44" y="127" text-anchor="middle" font-family="monospace" font-size="10" fill="white">key_2</text>
+</g>
+<g class="key3-anim">
+  <rect x="14" y="164" width="60" height="22" rx="11" fill="#2563EB"/>
+  <text x="44" y="179" text-anchor="middle" font-family="monospace" font-size="10" fill="white">key_3</text>
+</g>
+
+<!-- Feed lines into hash box -->
+<line x1="80" y1="71" x2="182" y2="113" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>
+<line x1="80" y1="123" x2="182" y2="128" stroke="#7C3AED" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>
+<line x1="80" y1="175" x2="182" y2="143" stroke="#2563EB" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>
+
+<!-- HASH FUNCTION box -->
+<rect x="182" y="95" width="136" height="72" rx="10" fill="#4F46E5" stroke="#3730A3" stroke-width="2.5" class="hash-pulse"/>
+<text x="250" y="124" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="800" fill="white">Hash</text>
+<text x="250" y="142" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="800" fill="white">Function</text>
+<text x="250" y="158" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">hash(key) mod N</text>
+
+<!-- Arrows to shards -->
+<line x1="320" y1="116" x2="398" y2="82" stroke="#16A34A" stroke-width="2.5" class="arr-a"/>
+<polygon points="396,76 409,81 397,88" fill="#16A34A" class="arr-a"/>
+<line x1="320" y1="131" x2="398" y2="131" stroke="#D97706" stroke-width="2.5" class="arr-b"/>
+<polygon points="396,126 409,131 396,136" fill="#D97706" class="arr-b"/>
+<line x1="320" y1="146" x2="398" y2="182" stroke="#2563EB" stroke-width="2.5" class="arr-c"/>
+<polygon points="396,177 409,183 398,190" fill="#2563EB" class="arr-c"/>
+
+<!-- SHARD A -->
+<rect x="405" y="48" width="110" height="55" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="2"/>
+<text x="460" y="70" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="700" fill="#15803D">Shard A</text>
+<text x="460" y="85" text-anchor="middle" class="shard-label">keys: 0–33%</text>
+<ellipse cx="460" cy="97" rx="20" ry="5" fill="none" stroke="#16A34A" stroke-width="1.5"/>
+<line x1="440" y1="97" x2="440" y2="104" stroke="#16A34A" stroke-width="1.5"/>
+<line x1="480" y1="97" x2="480" y2="104" stroke="#16A34A" stroke-width="1.5"/>
+<ellipse cx="460" cy="104" rx="20" ry="5" fill="#DCFCE7" stroke="#16A34A" stroke-width="1.5"/>
+
+<!-- SHARD B -->
+<rect x="405" y="113" width="110" height="55" rx="7" fill="#FFFBEB" stroke="#D97706" stroke-width="2"/>
+<text x="460" y="135" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="700" fill="#B45309">Shard B</text>
+<text x="460" y="150" text-anchor="middle" class="shard-label">keys: 34–66%</text>
+<ellipse cx="460" cy="162" rx="20" ry="5" fill="none" stroke="#D97706" stroke-width="1.5"/>
+<line x1="440" y1="162" x2="440" y2="169" stroke="#D97706" stroke-width="1.5"/>
+<line x1="480" y1="162" x2="480" y2="169" stroke="#D97706" stroke-width="1.5"/>
+<ellipse cx="460" cy="169" rx="20" ry="5" fill="#FEF9C3" stroke="#D97706" stroke-width="1.5"/>
+
+<!-- SHARD C -->
+<rect x="405" y="178" width="110" height="55" rx="7" fill="#EFF6FF" stroke="#2563EB" stroke-width="2"/>
+<text x="460" y="200" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="700" fill="#1D4ED8">Shard C</text>
+<text x="460" y="215" text-anchor="middle" class="shard-label">keys: 67–100%</text>
+<ellipse cx="460" cy="227" rx="20" ry="5" fill="none" stroke="#2563EB" stroke-width="1.5"/>
+<line x1="440" y1="227" x2="440" y2="234" stroke="#2563EB" stroke-width="1.5"/>
+<line x1="480" y1="227" x2="480" y2="234" stroke="#2563EB" stroke-width="1.5"/>
+<ellipse cx="460" cy="234" rx="20" ry="5" fill="#DBEAFE" stroke="#2563EB" stroke-width="1.5"/>
+
+<!-- Bottom note -->
+<rect x="12" y="248" width="380" height="24" rx="5" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
+<text x="202" y="264" text-anchor="middle" font-family="system-ui" font-size="10" fill="#4338CA">Each shard = independent DB  ·  Scales writes  ·  No single bottleneck</text>
+</svg>
 </div>

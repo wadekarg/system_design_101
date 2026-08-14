@@ -1,5 +1,134 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @keyframes restArrow {
+      0%   { stroke-dashoffset: 60; opacity: 0; }
+      15%  { opacity: 1; }
+      33%  { stroke-dashoffset: 0; opacity: 1; }
+      90%  { opacity: 1; }
+      100% { stroke-dashoffset: 60; opacity: 0; }
+    }
+    @keyframes restArrow2 {
+      0%,10%  { stroke-dashoffset: 60; opacity: 0; }
+      25%  { opacity: 1; }
+      43%  { stroke-dashoffset: 0; opacity: 1; }
+      90%  { opacity: 1; }
+      100% { stroke-dashoffset: 60; opacity: 0; }
+    }
+    @keyframes restArrow3 {
+      0%,20%  { stroke-dashoffset: 60; opacity: 0; }
+      35%  { opacity: 1; }
+      53%  { stroke-dashoffset: 0; opacity: 1; }
+      90%  { opacity: 1; }
+      100% { stroke-dashoffset: 60; opacity: 0; }
+    }
+    @keyframes gqlPulse {
+      0%, 30%  { opacity: 0; transform: scaleX(0); }
+      50%, 80% { opacity: 1; transform: scaleX(1); }
+      100%     { opacity: 0; transform: scaleX(0); }
+    }
+    @keyframes wsPulse {
+      0%   { opacity: 0.3; }
+      50%  { opacity: 1; }
+      100% { opacity: 0.3; }
+    }
+    .ra1 { animation: restArrow 4s ease-in-out infinite; stroke-dasharray: 60; }
+    .ra2 { animation: restArrow2 4s ease-in-out infinite; stroke-dasharray: 60; }
+    .ra3 { animation: restArrow3 4s ease-in-out infinite; stroke-dasharray: 60; }
+    .gql { animation: gqlPulse 3s ease-in-out infinite; transform-origin: left center; }
+    .ws  { animation: wsPulse 1.5s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+  <defs>
+    <marker id="a1" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#4F46E5"/>
+    </marker>
+    <marker id="a2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#16A34A"/>
+    </marker>
+    <marker id="a3l" markerWidth="7" markerHeight="5" refX="0" refY="2.5" orient="auto">
+      <polygon points="7 0,0 2.5,7 5" fill="#D97706"/>
+    </marker>
+    <marker id="a3r" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#D97706"/>
+    </marker>
+  </defs>
+
+  <!-- Panel borders -->
+  <!-- Top-left: REST -->
+  <rect x="10" y="10" width="280" height="130" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- Top-right: GraphQL -->
+  <rect x="310" y="10" width="280" height="130" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- Bottom-left: gRPC -->
+  <rect x="10" y="150" width="280" height="122" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- Bottom-right: WebSocket -->
+  <rect x="310" y="150" width="280" height="122" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+
+  <!-- Panel titles -->
+  <rect x="10" y="10" width="280" height="26" rx="8" fill="#4F46E5"/>
+  <rect x="10" y="28" width="280" height="8" fill="#4F46E5"/>
+  <text x="150" y="27" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">REST</text>
+
+  <rect x="310" y="10" width="280" height="26" rx="8" fill="#7C3AED"/>
+  <rect x="310" y="28" width="280" height="8" fill="#7C3AED"/>
+  <text x="450" y="27" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">GraphQL</text>
+
+  <rect x="10" y="150" width="280" height="26" rx="8" fill="#0369A1"/>
+  <rect x="10" y="168" width="280" height="8" fill="#0369A1"/>
+  <text x="150" y="167" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">gRPC</text>
+
+  <rect x="310" y="150" width="280" height="26" rx="8" fill="#16A34A"/>
+  <rect x="310" y="168" width="280" height="8" fill="#16A34A"/>
+  <text x="450" y="167" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">WebSocket</text>
+
+  <!-- REST panel content: 3 sequential round-trip arrows -->
+  <text x="22" y="57" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">C</text>
+  <text x="255" y="57" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">S</text>
+  <!-- Arrow row 1 -->
+  <line class="ra1" x1="34" y1="56" x2="252" y2="56" stroke="#4F46E5" stroke-width="1.8" marker-end="url(#a1)"/>
+  <text x="143" y="52" font-family="system-ui,sans-serif" font-size="9" fill="#4F46E5" text-anchor="middle">GET /users</text>
+  <!-- Arrow row 2 -->
+  <line class="ra2" x1="34" y1="80" x2="252" y2="80" stroke="#4F46E5" stroke-width="1.8" marker-end="url(#a1)"/>
+  <text x="143" y="76" font-family="system-ui,sans-serif" font-size="9" fill="#4F46E5" text-anchor="middle">GET /posts</text>
+  <!-- Arrow row 3 -->
+  <line class="ra3" x1="34" y1="104" x2="252" y2="104" stroke="#4F46E5" stroke-width="1.8" marker-end="url(#a1)"/>
+  <text x="143" y="100" font-family="system-ui,sans-serif" font-size="9" fill="#4F46E5" text-anchor="middle">GET /images</text>
+  <text x="150" y="127" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Multiple round trips</text>
+
+  <!-- GraphQL panel: single arrow, one response -->
+  <text x="322" y="57" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">C</text>
+  <text x="572" y="57" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">S</text>
+  <g class="gql">
+    <line x1="334" y1="70" x2="565" y2="70" stroke="#7C3AED" stroke-width="2" marker-end="url(#a1)"/>
+    <rect x="348" y="54" width="200" height="14" rx="3" fill="#EDE9FE" opacity="0.9"/>
+    <text x="448" y="64" font-family="system-ui,sans-serif" font-size="9" fill="#6D28D9" text-anchor="middle">query &#123; user &#123; posts &#125; &#125;</text>
+  </g>
+  <line x1="565" y1="90" x2="334" y2="90" stroke="#7C3AED" stroke-width="2" stroke-dasharray="none" marker-end="url(#a3l)"/>
+  <text x="450" y="107" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Single request — exact data returned</text>
+  <text x="450" y="86" font-family="system-ui,sans-serif" font-size="9" fill="#7C3AED" text-anchor="middle">&#123; data &#125; ←</text>
+
+  <!-- gRPC panel: binary / striped arrow -->
+  <text x="22" y="193" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">C</text>
+  <text x="272" y="193" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">S</text>
+  <line x1="34" y1="210" x2="265" y2="210" stroke="#0369A1" stroke-width="3" stroke-dasharray="8,3" marker-end="url(#a1)"/>
+  <text x="150" y="206" font-family="system-ui,sans-serif" font-size="9" fill="#0369A1" text-anchor="middle">Protobuf (binary)</text>
+  <line x1="265" y1="228" x2="34" y2="228" stroke="#0369A1" stroke-width="3" stroke-dasharray="8,3" marker-end="url(#a3l)"/>
+  <text x="150" y="224" font-family="system-ui,sans-serif" font-size="9" fill="#0369A1" text-anchor="middle">Protobuf response</text>
+  <text x="150" y="258" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Fast binary encoding · HTTP/2</text>
+
+  <!-- WebSocket panel: double-headed arrow -->
+  <text x="322" y="193" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">C</text>
+  <text x="572" y="193" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">S</text>
+  <g class="ws">
+    <line x1="334" y1="213" x2="563" y2="213" stroke="#16A34A" stroke-width="3" marker-end="url(#a2)" marker-start="url(#a3l)"/>
+    <rect x="380" y="198" width="130" height="14" rx="3" fill="#DCFCE7" opacity="0.9"/>
+    <text x="445" y="208" font-family="system-ui,sans-serif" font-size="9" fill="#15803D" text-anchor="middle">Full-duplex stream</text>
+  </g>
+  <text x="450" y="238" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Persistent connection · Low latency</text>
+  <text x="450" y="258" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Chat, live feeds, gaming</text>
+</svg>
 </div>

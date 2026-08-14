@@ -1,5 +1,161 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .ac-label { font-family: sans-serif; font-size: 10px; fill: #1E293B; text-anchor: middle; }
+    .ac-label-sm { font-family: sans-serif; font-size: 8px; fill: #64748B; text-anchor: middle; }
+    .ac-mono { font-family: monospace; font-size: 12px; fill: #1E293B; }
+    .ac-mono-acc { font-family: monospace; font-size: 12px; fill: #4F46E5; font-weight: bold; }
+
+    /* Trie node glow sequence */
+    @keyframes ac-node-root {
+      0%,100%  { fill: #E2E8F0; stroke: #94A3B8; }
+      10%,40%  { fill: #4F46E5; stroke: #3730A3; }
+    }
+    @keyframes ac-node-s {
+      0%,15%   { fill: #E2E8F0; stroke: #94A3B8; }
+      20%,50%  { fill: #4F46E5; stroke: #3730A3; }
+      60%,100% { fill: #E2E8F0; stroke: #94A3B8; }
+    }
+    @keyframes ac-node-sy {
+      0%,25%   { fill: #E2E8F0; stroke: #94A3B8; }
+      30%,60%  { fill: #4F46E5; stroke: #3730A3; }
+      70%,100% { fill: #E2E8F0; stroke: #94A3B8; }
+    }
+    @keyframes ac-node-sys {
+      0%,38%   { fill: #E2E8F0; stroke: #94A3B8; }
+      43%,73%  { fill: #4F46E5; stroke: #3730A3; }
+      83%,100% { fill: #E2E8F0; stroke: #94A3B8; }
+    }
+    /* Dropdown appear */
+    @keyframes ac-dropdown {
+      0%,60%   { opacity: 0; transform: translateY(-6px); }
+      70%,95%  { opacity: 1; transform: translateY(0); }
+      100%     { opacity: 0; }
+    }
+    /* Cursor blink */
+    @keyframes ac-cursor {
+      0%,49% { opacity: 1; }
+      50%,100%{ opacity: 0; }
+    }
+    /* Edge path highlight */
+    @keyframes ac-edge-s {
+      0%,12%   { stroke: #CBD5E1; }
+      18%,55%  { stroke: #4F46E5; }
+      65%,100% { stroke: #CBD5E1; }
+    }
+    @keyframes ac-edge-sy {
+      0%,22%   { stroke: #CBD5E1; }
+      28%,65%  { stroke: #4F46E5; }
+      75%,100% { stroke: #CBD5E1; }
+    }
+    @keyframes ac-edge-sys {
+      0%,34%   { stroke: #CBD5E1; }
+      40%,75%  { stroke: #4F46E5; }
+      85%,100% { stroke: #CBD5E1; }
+    }
+
+    .ac-n-root { animation: ac-node-root 4s ease-in-out infinite; stroke-width: 2; }
+    .ac-n-s    { animation: ac-node-s    4s ease-in-out infinite; stroke-width: 2; }
+    .ac-n-sy   { animation: ac-node-sy   4s ease-in-out infinite; stroke-width: 2; }
+    .ac-n-sys  { animation: ac-node-sys  4s ease-in-out infinite; stroke-width: 2; }
+    .ac-e-s    { animation: ac-edge-s    4s ease-in-out infinite; stroke-width: 2; }
+    .ac-e-sy   { animation: ac-edge-sy   4s ease-in-out infinite; stroke-width: 2; }
+    .ac-e-sys  { animation: ac-edge-sys  4s ease-in-out infinite; stroke-width: 2; }
+    .ac-dropdown { animation: ac-dropdown 4s ease-in-out infinite; }
+    .ac-cursor { animation: ac-cursor 0.9s step-end infinite; }
+
+    @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+  </style>
+
+  <defs>
+    <marker id="ac-arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <polygon points="0 0, 6 3, 0 6" fill="#94A3B8"/>
+    </marker>
+  </defs>
+
+  <rect width="600" height="280" fill="#F1F5F9" rx="8"/>
+
+  <!-- Input field at top -->
+  <rect x="180" y="16" width="240" height="32" rx="6" fill="#fff" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="192" y="37" class="ac-mono">sys</text>
+  <rect class="ac-cursor" x="222" y="22" width="2" height="16" fill="#4F46E5"/>
+  <text x="248" y="37" class="ac-mono" fill="#CBD5E1">tem</text>
+  <text x="300" y="14" class="ac-label" font-size="9" fill="#64748B">User types: "sys"</text>
+
+  <!-- Arrow input → service -->
+  <line x1="192" y1="48" x2="152" y2="96" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#ac-arr)"/>
+  <text x="158" y="72" class="ac-label" font-size="8" fill="#94A3B8">query</text>
+
+  <!-- Autocomplete Service box -->
+  <rect x="50" y="96" width="110" height="44" rx="6" fill="#4F46E5" stroke="#3730A3" stroke-width="1.5"/>
+  <text x="105" y="114" class="ac-label" fill="#fff" font-weight="700">Autocomplete</text>
+  <text x="105" y="128" class="ac-label" fill="#C7D2FE">Service</text>
+  <text x="105" y="140" class="ac-label" fill="#A5B4FC" font-size="8">prefix lookup</text>
+
+  <!-- Arrow service → trie -->
+  <line x1="160" y1="118" x2="208" y2="118" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#ac-arr)"/>
+
+  <!-- TRIE visualization -->
+  <!-- Root node -->
+  <circle cx="240" cy="110" r="14" class="ac-n-root"/>
+  <text x="240" y="115" class="ac-label" font-size="9" text-anchor="middle" fill="#1E293B" font-weight="700">*</text>
+
+  <!-- Level 1: s node -->
+  <line x1="240" y1="124" x2="240" y2="152" class="ac-e-s"/>
+  <circle cx="240" cy="164" r="14" class="ac-n-s"/>
+  <text x="240" y="169" class="ac-label" font-size="11" text-anchor="middle" fill="#fff" font-weight="700">s</text>
+
+  <!-- Level 2: sy node -->
+  <line x1="240" y1="178" x2="240" y2="200" class="ac-e-sy"/>
+  <circle cx="240" cy="212" r="14" class="ac-n-sy"/>
+  <text x="240" y="217" class="ac-label" font-size="9" text-anchor="middle" fill="#fff" font-weight="700">sy</text>
+
+  <!-- Level 3: sys node -->
+  <line x1="240" y1="226" x2="240" y2="248" class="ac-e-sys"/>
+  <circle cx="240" cy="258" r="14" class="ac-n-sys"/>
+  <text x="240" y="263" class="ac-label" font-size="9" text-anchor="middle" fill="#fff" font-weight="700">sys</text>
+
+  <!-- Branch siblings at level 1 (faded) -->
+  <line x1="240" y1="124" x2="190" y2="152" stroke="#E2E8F0" stroke-width="1.2"/>
+  <circle cx="190" cy="160" r="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.2"/>
+  <text x="190" y="164" class="ac-label" font-size="9" text-anchor="middle" fill="#94A3B8">a</text>
+
+  <line x1="240" y1="124" x2="290" y2="152" stroke="#E2E8F0" stroke-width="1.2"/>
+  <circle cx="290" cy="160" r="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.2"/>
+  <text x="290" y="164" class="ac-label" font-size="9" text-anchor="middle" fill="#94A3B8">t</text>
+
+  <!-- Trie label -->
+  <text x="240" y="95" class="ac-label" font-size="9" fill="#64748B">Trie Index</text>
+
+  <!-- Dropdown results -->
+  <g class="ac-dropdown" style="transform-origin: 430px 80px;">
+    <rect x="370" y="60" width="160" height="150" rx="6" fill="#fff" stroke="#4F46E5" stroke-width="1.5"/>
+    <text x="450" y="80" class="ac-label" fill="#4F46E5" font-weight="700" font-size="9">Results</text>
+
+    <!-- Result items -->
+    <rect x="378" y="86" width="144" height="18" rx="3" fill="#EEF2FF"/>
+    <text x="386" y="99" class="ac-mono" font-size="10" fill="#1E293B">system</text>
+
+    <rect x="378" y="108" width="144" height="18" rx="3" fill="#F8FAFC"/>
+    <text x="386" y="121" class="ac-mono" font-size="10" fill="#1E293B">system design</text>
+
+    <rect x="378" y="130" width="144" height="18" rx="3" fill="#F8FAFC"/>
+    <text x="386" y="143" class="ac-mono" font-size="10" fill="#1E293B">syscall</text>
+
+    <rect x="378" y="152" width="144" height="18" rx="3" fill="#F8FAFC"/>
+    <text x="386" y="165" class="ac-mono" font-size="10" fill="#1E293B">syslog</text>
+
+    <rect x="378" y="174" width="144" height="18" rx="3" fill="#F8FAFC"/>
+    <text x="386" y="187" class="ac-mono" font-size="10" fill="#1E293B">sysctl</text>
+  </g>
+
+  <!-- Arrow service → dropdown -->
+  <line x1="160" y1="128" x2="368" y2="128" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#ac-arr)"/>
+
+  <!-- Legend -->
+  <rect x="12" y="248" width="330" height="22" rx="4" fill="#E2E8F0"/>
+  <text x="18" y="263" class="ac-label" text-anchor="start" font-size="8" fill="#475569">Trie nodes light up as prefix "sys" is matched → results returned</text>
+</svg>
 </div>

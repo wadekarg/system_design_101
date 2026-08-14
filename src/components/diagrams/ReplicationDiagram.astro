@@ -1,5 +1,110 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .repl-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  .repl-sm { font-family: system-ui, sans-serif; font-size: 9px; fill: #64748B; }
+  .write-dot { animation: writeDot 2.4s ease-in-out infinite; }
+  .dash1 { stroke-dasharray: 8,5; animation: dashFlow 1.3s linear infinite; }
+  .dash2 { stroke-dasharray: 8,5; animation: dashFlow 1.3s linear infinite; animation-delay: 0.4s; }
+  .read-dot1 { animation: readDot1 2.6s ease-in-out infinite; }
+  .read-dot2 { animation: readDot2 2.6s ease-in-out infinite; animation-delay: 1.3s; }
+  @keyframes writeDot {
+    0% { cx: 58; opacity: 0; }
+    10% { opacity: 1; }
+    80% { cx: 148; opacity: 1; }
+    90%, 100% { cx: 148; opacity: 0; }
+  }
+  @keyframes dashFlow {
+    from { stroke-dashoffset: 26; }
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes readDot1 {
+    0%, 10% { cx: 512; opacity: 0; }
+    20% { opacity: 1; }
+    85% { cx: 570; opacity: 1; }
+    95%, 100% { cx: 570; opacity: 0; }
+  }
+  @keyframes readDot2 {
+    0%, 10% { cx: 512; opacity: 0; }
+    20% { opacity: 1; }
+    85% { cx: 570; opacity: 1; }
+    95%, 100% { cx: 570; opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="300" y="26" text-anchor="middle" font-family="system-ui" font-size="15" font-weight="800" fill="#1E293B">Database Replication</text>
+
+<!-- Write client -->
+<rect x="10" y="110" width="52" height="36" rx="6" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+<text x="36" y="126" text-anchor="middle" font-family="system-ui" font-size="9" font-weight="700" fill="#1E293B">Client</text>
+<text x="36" y="140" text-anchor="middle" font-family="system-ui" font-size="9" fill="#64748B">Write</text>
+
+<!-- Write arrow -->
+<line x1="62" y1="128" x2="148" y2="128" stroke="#4F46E5" stroke-width="2"/>
+<polygon points="148,123 160,128 148,133" fill="#4F46E5"/>
+<text x="105" y="120" text-anchor="middle" class="repl-label" fill="#4F46E5" font-weight="600">Write</text>
+<!-- Animated write dot -->
+<circle cy="128" r="5" fill="#4F46E5" class="write-dot"/>
+
+<!-- PRIMARY box -->
+<rect x="160" y="92" width="128" height="72" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="2.5"/>
+<text x="224" y="122" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="800" fill="white">Primary</text>
+<text x="224" y="140" text-anchor="middle" font-family="system-ui" font-size="10" fill="#C7D2FE">Leader DB</text>
+<!-- DB rings -->
+<ellipse cx="224" cy="152" rx="24" ry="6" fill="none" stroke="#818CF8" stroke-width="1.5"/>
+<line x1="200" y1="152" x2="200" y2="160" stroke="#818CF8" stroke-width="1.5"/>
+<line x1="248" y1="152" x2="248" y2="160" stroke="#818CF8" stroke-width="1.5"/>
+<ellipse cx="224" cy="160" rx="24" ry="6" fill="none" stroke="#818CF8" stroke-width="1.5"/>
+
+<!-- WAL label -->
+<rect x="162" y="175" width="124" height="20" rx="4" fill="#3730A3"/>
+<text x="224" y="189" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">Replication Log (WAL)</text>
+
+<!-- Dashed arrows Primary → Replica 1 and 2 -->
+<line x1="290" y1="115" x2="395" y2="88" stroke="#6366F1" stroke-width="2" class="dash1"/>
+<polygon points="391,82 403,87 393,94" fill="#6366F1"/>
+<text x="348" y="90" text-anchor="middle" class="repl-sm" fill="#6366F1" transform="rotate(-10,348,90)">async replication</text>
+
+<line x1="290" y1="148" x2="395" y2="178" stroke="#6366F1" stroke-width="2" class="dash2"/>
+<polygon points="391,173 403,177 393,184" fill="#6366F1"/>
+<text x="348" y="177" text-anchor="middle" class="repl-sm" fill="#6366F1" transform="rotate(10,348,177)">async replication</text>
+
+<!-- REPLICA 1 -->
+<rect x="400" y="58" width="110" height="62" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="2"/>
+<text x="455" y="81" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="700" fill="#1E293B">Replica 1</text>
+<text x="455" y="96" text-anchor="middle" class="repl-label">Read Replica</text>
+<ellipse cx="455" cy="108" rx="17" ry="5" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
+<line x1="438" y1="108" x2="438" y2="115" stroke="#CBD5E1" stroke-width="1.5"/>
+<line x1="472" y1="108" x2="472" y2="115" stroke="#CBD5E1" stroke-width="1.5"/>
+<ellipse cx="455" cy="115" rx="17" ry="5" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
+
+<!-- REPLICA 2 -->
+<rect x="400" y="155" width="110" height="62" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="2"/>
+<text x="455" y="178" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="700" fill="#1E293B">Replica 2</text>
+<text x="455" y="193" text-anchor="middle" class="repl-label">Read Replica</text>
+<ellipse cx="455" cy="205" rx="17" ry="5" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
+<line x1="438" y1="205" x2="438" y2="212" stroke="#CBD5E1" stroke-width="1.5"/>
+<line x1="472" y1="205" x2="472" y2="212" stroke="#CBD5E1" stroke-width="1.5"/>
+<ellipse cx="455" cy="212" rx="17" ry="5" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
+
+<!-- Read arrows from replicas -->
+<line x1="512" y1="89" x2="566" y2="89" stroke="#16A34A" stroke-width="2"/>
+<polygon points="566,84 578,89 566,94" fill="#16A34A"/>
+<text x="540" y="82" text-anchor="middle" class="repl-label" fill="#16A34A" font-weight="600">Read</text>
+<circle cy="89" r="5" fill="#16A34A" class="read-dot1"/>
+
+<line x1="512" y1="186" x2="566" y2="186" stroke="#16A34A" stroke-width="2"/>
+<polygon points="566,181 578,186 566,191" fill="#16A34A"/>
+<text x="540" y="179" text-anchor="middle" class="repl-label" fill="#16A34A" font-weight="600">Read</text>
+<circle cy="186" r="5" fill="#16A34A" class="read-dot2"/>
+
+<!-- Bottom benefits -->
+<rect x="12" y="242" width="574" height="30" rx="6" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
+<text x="300" y="255" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#4F46E5">Benefits:</text>
+<text x="300" y="267" text-anchor="middle" font-family="system-ui" font-size="10" fill="#4338CA">Read scaling  ·  High availability  ·  Disaster recovery  ·  Geo distribution</text>
+</svg>
 </div>

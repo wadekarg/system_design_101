@@ -1,5 +1,111 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .ch-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  .ch-node { animation: nodePop 6s ease-in-out infinite; }
+  .new-server { animation: newServer 6s ease-in-out infinite; }
+  .key-remap { animation: keyRemap 6s ease-in-out infinite; }
+  .heartbeat { animation: hbPulse 1.5s ease-in-out infinite; }
+  @keyframes nodePop {
+    0%, 100% { r: 14; }
+    50% { r: 16; }
+  }
+  @keyframes newServer {
+    0%, 60% { opacity: 0; r: 0; }
+    70%, 85% { opacity: 1; r: 16; }
+    90%, 100% { opacity: 0; r: 0; }
+  }
+  @keyframes keyRemap {
+    0%, 60% { fill: #D97706; }
+    70%, 85% { fill: #16A34A; }
+    90%, 100% { fill: #D97706; }
+  }
+  @keyframes hbPulse {
+    0%, 100% { opacity: 0.5; stroke-width: 1; }
+    50% { opacity: 1; stroke-width: 2; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="300" y="26" text-anchor="middle" font-family="system-ui" font-size="15" font-weight="800" fill="#1E293B">Consistent Hashing Ring</text>
+
+<!-- The ring (cx=300, cy=148, r=105) -->
+<circle cx="300" cy="148" r="105" fill="none" stroke="#E2E8F0" stroke-width="16" opacity="0.5"/>
+<circle cx="300" cy="148" r="105" fill="none" stroke="#C7D2FE" stroke-width="3"/>
+
+<!-- Clockwise arrows on ring (small arc hint) -->
+<text x="405" y="100" font-family="system-ui" font-size="14" fill="#94A3B8">&#8635;</text>
+<text x="288" y="267" font-family="system-ui" font-size="10" fill="#94A3B8">clockwise assignment</text>
+
+<!-- SERVER NODES on ring -->
+<!-- Server A: top (300, 43) = 300, 148-105 -->
+<circle cx="300" cy="43" r="14" fill="#4F46E5" stroke="white" stroke-width="2.5" class="ch-node"/>
+<text x="300" y="40" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">A</text>
+<text x="300" y="22" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#4F46E5">Server A</text>
+
+<!-- Server B: right (405, 148) = 300+105, 148 -->
+<circle cx="405" cy="148" r="14" fill="#16A34A" stroke="white" stroke-width="2.5" class="ch-node" style="animation-delay:0.4s"/>
+<text x="405" y="145" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">B</text>
+<text x="430" y="152" font-family="system-ui" font-size="10" font-weight="700" fill="#16A34A">Server B</text>
+
+<!-- Server C: bottom (300, 253) = 300, 148+105 -->
+<circle cx="300" cy="253" r="14" fill="#D97706" stroke="white" stroke-width="2.5" class="ch-node" style="animation-delay:0.8s"/>
+<text x="300" y="250" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">C</text>
+<text x="300" y="274" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#D97706">Server C</text>
+
+<!-- Server D: left (195, 148) = 300-105, 148 -->
+<circle cx="195" cy="148" r="14" fill="#7C3AED" stroke="white" stroke-width="2.5" class="ch-node" style="animation-delay:1.2s"/>
+<text x="195" y="145" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">D</text>
+<text x="114" y="152" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#7C3AED">Server D</text>
+
+<!-- KEY DOTS on ring between servers -->
+<!-- Key1: between A and B, upper-right arc ~ (374, 74) -->
+<circle cx="374" cy="74" r="7" fill="#D97706" stroke="white" stroke-width="1.5" class="key-remap"/>
+<text x="388" y="66" font-family="system-ui" font-size="9" font-weight="600" fill="#1E293B">key_1</text>
+<!-- Arrow from key1 clockwise to B -->
+<path d="M 379,80 Q 400,100 400,140" fill="none" stroke="#D97706" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#arrowAmber)"/>
+
+<!-- Key2: between B and C, lower-right ~(374, 222) -->
+<circle cx="374" cy="222" r="7" fill="#6366F1" stroke="white" stroke-width="1.5"/>
+<text x="386" y="230" font-family="system-ui" font-size="9" font-weight="600" fill="#1E293B">key_2</text>
+<!-- Arrow from key2 clockwise to C -->
+<path d="M 368,228 Q 340,250 314,252" fill="none" stroke="#6366F1" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#arrowIndigo)"/>
+
+<!-- Key3: between D and A, upper-left ~(226, 74) -->
+<circle cx="226" cy="74" r="7" fill="#16A34A" stroke="white" stroke-width="1.5"/>
+<text x="200" y="66" text-anchor="middle" font-family="system-ui" font-size="9" font-weight="600" fill="#1E293B">key_3</text>
+<!-- Arrow from key3 clockwise to A -->
+<path d="M 232,68 Q 265,45 286,43" fill="none" stroke="#16A34A" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#arrowGreen)"/>
+
+<!-- NEW SERVER E appears (animated) - between A and B at ~ (360, 62) -->
+<circle cx="363" cy="62" r="14" fill="#EF4444" stroke="white" stroke-width="2.5" class="new-server"/>
+<text x="363" y="59" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700" class="new-server">E</text>
+<text x="420" y="54" text-anchor="start" font-family="system-ui" font-size="9" font-weight="700" fill="#EF4444" class="new-server">Server E</text>
+<text x="420" y="66" text-anchor="start" font-family="system-ui" font-size="8" fill="#EF4444" class="new-server">(new node)</text>
+
+<!-- Defs for arrowheads -->
+<defs>
+  <marker id="arrowAmber" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+    <path d="M0,0 L0,6 L6,3 z" fill="#D97706"/>
+  </marker>
+  <marker id="arrowIndigo" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+    <path d="M0,0 L0,6 L6,3 z" fill="#6366F1"/>
+  </marker>
+  <marker id="arrowGreen" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+    <path d="M0,0 L0,6 L6,3 z" fill="#16A34A"/>
+  </marker>
+</defs>
+
+<!-- Center label -->
+<text x="300" y="140" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="700" fill="#4F46E5">Hash Ring</text>
+<text x="300" y="156" text-anchor="middle" font-family="system-ui" font-size="9" fill="#64748B">0 — 2³² space</text>
+
+<!-- Bottom note -->
+<rect x="12" y="244" width="574" height="28" rx="6" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
+<text x="300" y="257" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#4F46E5">Key insight:</text>
+<text x="300" y="267" text-anchor="middle" font-family="system-ui" font-size="10" fill="#4338CA">Adding/removing a server only remaps ~K/N keys — not all keys rehash</text>
+</svg>
 </div>

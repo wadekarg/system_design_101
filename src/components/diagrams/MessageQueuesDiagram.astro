@@ -1,5 +1,107 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .mq-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  .msg-appear { animation: msgAppear 4s ease-in-out infinite; }
+  .msg-to-c1 { animation: msgToC1 4s ease-in-out infinite; animation-delay: 1.5s; }
+  .msg-to-c2 { animation: msgToC2 4s ease-in-out infinite; animation-delay: 3s; }
+  .prod-pulse { animation: prodPulse 4s ease-in-out infinite; }
+  @keyframes msgAppear {
+    0%, 10% { opacity: 0; transform: translateX(-30px); }
+    25%, 70% { opacity: 1; transform: translateX(0); }
+    85%, 100% { opacity: 0; transform: translateX(0); }
+  }
+  @keyframes msgToC1 {
+    0%, 20% { opacity: 0; transform: translateX(0); }
+    35%, 55% { opacity: 1; transform: translateX(80px); }
+    70%, 100% { opacity: 0; transform: translateX(80px); }
+  }
+  @keyframes msgToC2 {
+    0%, 20% { opacity: 0; transform: translateX(0); }
+    35%, 55% { opacity: 1; transform: translateX(80px); }
+    70%, 100% { opacity: 0; transform: translateX(80px); }
+  }
+  @keyframes prodPulse {
+    0%, 100% { fill: #4F46E5; }
+    25%, 35% { fill: #6366F1; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="300" y="26" text-anchor="middle" font-family="system-ui" font-size="15" font-weight="800" fill="#1E293B">Message Queue (Async Messaging)</text>
+
+<!-- PRODUCER box -->
+<rect x="14" y="100" width="100" height="80" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="2.5" class="prod-pulse"/>
+<text x="64" y="133" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="800" fill="white">Producer</text>
+<text x="64" y="150" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">Publishes</text>
+<text x="64" y="162" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">messages</text>
+
+<!-- Arrow Producer → Queue -->
+<line x1="116" y1="140" x2="170" y2="140" stroke="#4F46E5" stroke-width="2"/>
+<polygon points="168,135 180,140 168,145" fill="#4F46E5"/>
+
+<!-- QUEUE container -->
+<rect x="178" y="84" width="210" height="112" rx="8" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="2"/>
+<text x="283" y="104" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="700" fill="#1E293B">Queue</text>
+<text x="283" y="117" text-anchor="middle" class="mq-label">FIFO — First In, First Out</text>
+
+<!-- Static message slots in queue -->
+<rect x="190" y="122" width="186" height="20" rx="3" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="1"/>
+<text x="220" y="136" font-family="system-ui" font-size="9" fill="#64748B">msg_4 (oldest)</text>
+
+<rect x="190" y="146" width="186" height="20" rx="3" fill="#C7D2FE" stroke="#A5B4FC" stroke-width="1"/>
+<text x="220" y="160" font-family="system-ui" font-size="9" fill="#3730A3">msg_5</text>
+
+<rect x="190" y="170" width="186" height="20" rx="3" fill="#A5B4FC" stroke="#818CF8" stroke-width="1"/>
+<text x="220" y="184" font-family="system-ui" font-size="9" fill="#1E1B4B">msg_6 (newest)</text>
+
+<!-- Animated: new message appearing from producer -->
+<g class="msg-appear">
+  <rect x="190" y="122" width="70" height="20" rx="3" fill="#4F46E5"/>
+  <text x="225" y="136" text-anchor="middle" font-family="system-ui" font-size="9" fill="white" font-weight="700">new msg</text>
+</g>
+
+<!-- Arrow Queue → Consumer 1 -->
+<line x1="390" y1="115" x2="446" y2="105" stroke="#16A34A" stroke-width="2"/>
+<polygon points="442,100 454,105 444,112" fill="#16A34A"/>
+
+<!-- Arrow Queue → Consumer 2 -->
+<line x1="390" y1="165" x2="446" y2="178" stroke="#D97706" stroke-width="2"/>
+<polygon points="442,174 454,178 444,185" fill="#D97706"/>
+
+<!-- Animated pulled message to Consumer 1 -->
+<g class="msg-to-c1">
+  <rect x="380" y="100" width="60" height="18" rx="3" fill="#16A34A"/>
+  <text x="410" y="113" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">msg_4</text>
+</g>
+<!-- Animated pulled message to Consumer 2 -->
+<g class="msg-to-c2">
+  <rect x="380" y="164" width="60" height="18" rx="3" fill="#D97706"/>
+  <text x="410" y="177" text-anchor="middle" font-family="system-ui" font-size="8" fill="white" font-weight="700">msg_5</text>
+</g>
+
+<!-- CONSUMER 1 box -->
+<rect x="454" y="72" width="110" height="62" rx="8" fill="#F0FDF4" stroke="#16A34A" stroke-width="2"/>
+<text x="509" y="96" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="700" fill="#15803D">Consumer 1</text>
+<text x="509" y="111" text-anchor="middle" class="mq-label">Email service</text>
+<text x="509" y="127" text-anchor="middle" font-family="system-ui" font-size="9" fill="#16A34A">Processes msg</text>
+
+<!-- CONSUMER 2 box -->
+<rect x="454" y="148" width="110" height="62" rx="8" fill="#FFFBEB" stroke="#D97706" stroke-width="2"/>
+<text x="509" y="172" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="700" fill="#B45309">Consumer 2</text>
+<text x="509" y="187" text-anchor="middle" class="mq-label">Analytics svc</text>
+<text x="509" y="203" text-anchor="middle" font-family="system-ui" font-size="9" fill="#D97706">Processes msg</text>
+
+<!-- Labels -->
+<text x="64" y="92" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="600" fill="#4F46E5">Publisher</text>
+<text x="509" y="62" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="600" fill="#64748B">Subscribers</text>
+
+<!-- Bottom benefits -->
+<rect x="12" y="240" width="574" height="30" rx="6" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
+<text x="300" y="253" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#4F46E5">Key benefits:</text>
+<text x="300" y="265" text-anchor="middle" font-family="system-ui" font-size="10" fill="#4338CA">Decoupling  ·  Backpressure  ·  Retry logic  ·  Fan-out to multiple consumers</text>
+</svg>
 </div>

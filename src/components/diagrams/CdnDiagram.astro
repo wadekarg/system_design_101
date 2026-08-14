@@ -1,5 +1,112 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @keyframes pulseEdge {
+      0%, 100% { opacity: 0.4; }
+      50%       { opacity: 1.0; }
+    }
+    @keyframes dashFlow {
+      from { stroke-dashoffset: 20; }
+      to   { stroke-dashoffset: 0; }
+    }
+    .edge-arrow-us   { animation: pulseEdge 2.0s 0.0s ease-in-out infinite; }
+    .edge-arrow-eu   { animation: pulseEdge 2.0s 0.6s ease-in-out infinite; }
+    .edge-arrow-asia { animation: pulseEdge 2.0s 1.2s ease-in-out infinite; }
+    .origin-miss     { animation: dashFlow 1.5s linear infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+  <defs>
+    <marker id="ag2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#16A34A"/>
+    </marker>
+    <marker id="ao2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#D97706"/>
+    </marker>
+    <marker id="ao2l" markerWidth="7" markerHeight="5" refX="0" refY="2.5" orient="auto">
+      <polygon points="7 0,0 2.5,7 5" fill="#D97706"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="300" y="22" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1E293B" text-anchor="middle">Content Delivery Network (CDN)</text>
+
+  <!-- Origin Server (center) -->
+  <rect x="230" y="108" width="140" height="54" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="1.5"/>
+  <text x="300" y="130" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="white" text-anchor="middle">Origin Server</text>
+  <text x="300" y="148" font-family="system-ui,sans-serif" font-size="10" fill="#C7D2FE" text-anchor="middle">source of truth</text>
+
+  <!-- === US Edge (left) === -->
+  <rect x="30" y="115" width="110" height="44" rx="8" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="85" y="134" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#15803D" text-anchor="middle">US Edge</text>
+  <text x="85" y="149" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">PoP · San Jose</text>
+
+  <!-- User icon near US Edge -->
+  <circle cx="32" cy="95" r="8" fill="#BFDBFE" stroke="#93C5FD" stroke-width="1"/>
+  <text x="32" y="99" font-family="system-ui,sans-serif" font-size="9" fill="#1D4ED8" text-anchor="middle">👤</text>
+  <text x="32" y="110" font-family="system-ui,sans-serif" font-size="7" fill="#64748B" text-anchor="middle">US user</text>
+
+  <!-- Arrow: US user → US Edge (pulsing) -->
+  <g class="edge-arrow-us">
+    <line x1="42" y1="103" x2="60" y2="118" stroke="#16A34A" stroke-width="2" marker-end="url(#ag2)"/>
+    <rect x="30" y="75" width="34" height="14" rx="3" fill="#DCFCE7"/>
+    <text x="47" y="85" font-family="system-ui,sans-serif" font-size="8" fill="#16A34A" text-anchor="middle">10 ms</text>
+  </g>
+
+  <!-- === EU Edge (top-right) === -->
+  <rect x="410" y="38" width="120" height="44" rx="8" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="470" y="57" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#15803D" text-anchor="middle">EU Edge</text>
+  <text x="470" y="72" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">PoP · Frankfurt</text>
+
+  <!-- User icon near EU Edge -->
+  <circle cx="570" cy="38" r="8" fill="#BFDBFE" stroke="#93C5FD" stroke-width="1"/>
+  <text x="570" y="42" font-family="system-ui,sans-serif" font-size="9" fill="#1D4ED8" text-anchor="middle">👤</text>
+  <text x="570" y="54" font-family="system-ui,sans-serif" font-size="7" fill="#64748B" text-anchor="middle">EU user</text>
+
+  <!-- Arrow: EU user → EU Edge (pulsing) -->
+  <g class="edge-arrow-eu">
+    <line x1="562" y1="43" x2="532" y2="50" stroke="#16A34A" stroke-width="2" marker-end="url(#ag2)"/>
+    <rect x="536" y="28" width="34" height="14" rx="3" fill="#DCFCE7"/>
+    <text x="553" y="38" font-family="system-ui,sans-serif" font-size="8" fill="#16A34A" text-anchor="middle">10 ms</text>
+  </g>
+
+  <!-- === Asia Edge (bottom-right) === -->
+  <rect x="410" y="188" width="120" height="44" rx="8" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="470" y="207" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#15803D" text-anchor="middle">Asia Edge</text>
+  <text x="470" y="222" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">PoP · Singapore</text>
+
+  <!-- User icon near Asia Edge -->
+  <circle cx="570" cy="242" r="8" fill="#BFDBFE" stroke="#93C5FD" stroke-width="1"/>
+  <text x="570" y="246" font-family="system-ui,sans-serif" font-size="9" fill="#1D4ED8" text-anchor="middle">👤</text>
+  <text x="570" y="258" font-family="system-ui,sans-serif" font-size="7" fill="#64748B" text-anchor="middle">Asia user</text>
+
+  <!-- Arrow: Asia user → Asia Edge (pulsing) -->
+  <g class="edge-arrow-asia">
+    <line x1="562" y1="238" x2="532" y2="228" stroke="#16A34A" stroke-width="2" marker-end="url(#ag2)"/>
+    <rect x="536" y="240" width="34" height="14" rx="3" fill="#DCFCE7"/>
+    <text x="553" y="250" font-family="system-ui,sans-serif" font-size="8" fill="#16A34A" text-anchor="middle">10 ms</text>
+  </g>
+
+  <!-- Origin miss arrows (dashed orange): US Edge ↔ Origin -->
+  <line class="origin-miss" x1="142" y1="135" x2="228" y2="135" stroke="#D97706" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#ao2)"/>
+  <text x="186" y="128" font-family="system-ui,sans-serif" font-size="8" fill="#D97706" text-anchor="middle">cache miss</text>
+  <text x="186" y="150" font-family="system-ui,sans-serif" font-size="8" fill="#D97706" text-anchor="middle">150 ms</text>
+
+  <!-- EU Edge ↔ Origin (dashed) -->
+  <line class="origin-miss" x1="408" y1="78" x2="342" y2="118" stroke="#D97706" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#ao2l)"/>
+  <text x="388" y="96" font-family="system-ui,sans-serif" font-size="8" fill="#D97706" text-anchor="middle">150 ms</text>
+
+  <!-- Asia Edge ↔ Origin (dashed) -->
+  <line class="origin-miss" x1="408" y1="200" x2="372" y2="168" stroke="#D97706" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#ao2l)"/>
+  <text x="404" y="186" font-family="system-ui,sans-serif" font-size="8" fill="#D97706" text-anchor="middle">150 ms</text>
+
+  <!-- Legend -->
+  <rect x="20" y="255" width="10" height="3" fill="#16A34A" rx="1"/>
+  <text x="34" y="261" font-family="system-ui,sans-serif" font-size="8" fill="#16A34A">User → Edge (fast, cached)</text>
+  <rect x="180" y="255" width="14" height="3" fill="#D97706" rx="1"/>
+  <text x="198" y="261" font-family="system-ui,sans-serif" font-size="8" fill="#D97706">Edge → Origin (cache miss only)</text>
+</svg>
 </div>

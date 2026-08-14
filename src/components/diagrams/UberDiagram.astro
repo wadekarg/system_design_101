@@ -1,5 +1,151 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .ub-label { font-family: sans-serif; font-size: 10px; fill: #1E293B; text-anchor: middle; }
+    .ub-label-sm { font-family: sans-serif; font-size: 8px; fill: #64748B; text-anchor: middle; }
+    .ub-label-w { font-family: sans-serif; font-size: 10px; fill: #fff; text-anchor: middle; font-weight: 600; }
+
+    @keyframes ub-gps1 {
+      0%,100% { r: 6; opacity: 0.9; }
+      50%     { r: 10; opacity: 0.3; }
+    }
+    @keyframes ub-gps2 {
+      0%,100% { r: 6; opacity: 0.9; }
+      50%     { r: 10; opacity: 0.3; }
+    }
+    @keyframes ub-gps3 {
+      0%,100% { r: 6; opacity: 0.9; }
+      50%     { r: 10; opacity: 0.3; }
+    }
+    @keyframes ub-req-dash {
+      0%,5%   { stroke-dashoffset: 100; opacity: 0; }
+      20%     { opacity: 1; stroke-dashoffset: 0; }
+      50%,100%{ opacity: 0; }
+    }
+    @keyframes ub-match-glow {
+      0%,35%   { stroke: #3730A3; }
+      45%,75%  { stroke: #16A34A; stroke-width: 3; }
+      85%,100% { stroke: #3730A3; }
+    }
+    @keyframes ub-driver-win {
+      0%,55%   { fill: #D97706; }
+      65%,90%  { fill: #16A34A; }
+      100%     { fill: #D97706; }
+    }
+    @keyframes ub-ws-pulse {
+      0%,60%   { opacity: 0; stroke-dashoffset: 120; }
+      72%      { opacity: 1; }
+      92%      { stroke-dashoffset: 0; opacity: 1; }
+      100%     { opacity: 0; }
+    }
+    .ub-gps1   { animation: ub-gps1 1.4s ease-in-out infinite; }
+    .ub-gps2   { animation: ub-gps2 1.4s 0.5s ease-in-out infinite; }
+    .ub-gps3   { animation: ub-gps3 1.4s 1.0s ease-in-out infinite; }
+    .ub-req    { animation: ub-req-dash  4.5s ease-in-out infinite; }
+    .ub-match  { animation: ub-match-glow 4.5s ease-in-out infinite; }
+    .ub-dwin   { animation: ub-driver-win 4.5s ease-in-out infinite; }
+    .ub-ws     { animation: ub-ws-pulse 4.5s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+  </style>
+
+  <defs>
+    <marker id="ub-arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <polygon points="0 0, 6 3, 0 6" fill="#94A3B8"/>
+    </marker>
+    <marker id="ub-arr-g" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <polygon points="0 0, 6 3, 0 6" fill="#16A34A"/>
+    </marker>
+  </defs>
+
+  <rect width="600" height="280" fill="#F1F5F9" rx="8"/>
+  <text x="300" y="18" class="ub-label" font-size="11" font-weight="700" fill="#4F46E5">Uber — Ride Matching Flow</text>
+
+  <!-- Driver 1 (car shape) -->
+  <g transform="translate(22,50)">
+    <rect x="0" y="6" width="32" height="16" rx="3" fill="#D97706" stroke="#92400E" stroke-width="1"/>
+    <rect x="5" y="0" width="22" height="12" rx="2" fill="#FCD34D"/>
+    <circle cx="6"  cy="24" r="4" fill="#1E293B"/>
+    <circle cx="26" cy="24" r="4" fill="#1E293B"/>
+    <text x="16" y="38" class="ub-label" font-size="8">Driver 1</text>
+  </g>
+  <circle class="ub-gps1" cx="38" cy="62" r="6" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+
+  <!-- Driver 2 -->
+  <g transform="translate(22,120)">
+    <rect x="0" y="6" width="32" height="16" rx="3" fill="#D97706" stroke="#92400E" stroke-width="1"/>
+    <rect x="5" y="0" width="22" height="12" rx="2" fill="#FCD34D"/>
+    <circle cx="6"  cy="24" r="4" fill="#1E293B"/>
+    <circle cx="26" cy="24" r="4" fill="#1E293B"/>
+    <text x="16" y="38" class="ub-label" font-size="8">Driver 2</text>
+  </g>
+  <circle class="ub-gps2" cx="38" cy="132" r="6" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+
+  <!-- Driver 3 (winner - turns green) -->
+  <g transform="translate(22,190)">
+    <rect x="0" y="6" width="32" height="16" rx="3" class="ub-dwin" stroke="#15803D" stroke-width="1"/>
+    <rect x="5" y="0" width="22" height="12" rx="2" fill="#FCD34D"/>
+    <circle cx="6"  cy="24" r="4" fill="#1E293B"/>
+    <circle cx="26" cy="24" r="4" fill="#1E293B"/>
+    <text x="16" y="38" class="ub-label" font-size="8" fill="#15803D" font-weight="700">Driver 3 ✓</text>
+  </g>
+  <circle class="ub-gps3" cx="38" cy="202" r="6" fill="none" stroke="#16A34A" stroke-width="1.5"/>
+
+  <!-- GPS arrows to Location Service -->
+  <line x1="58" y1="68"  x2="188" y2="120" stroke="#CBD5E1" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#ub-arr)"/>
+  <line x1="58" y1="138" x2="188" y2="130" stroke="#CBD5E1" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#ub-arr)"/>
+  <line x1="58" y1="202" x2="188" y2="140" stroke="#CBD5E1" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#ub-arr)"/>
+  <text x="118" y="100" class="ub-label" font-size="7" fill="#94A3B8">GPS updates</text>
+
+  <!-- Location Service -->
+  <rect x="188" y="106" width="104" height="52" rx="6" fill="#4F46E5" stroke="#3730A3" stroke-width="1.5"/>
+  <text x="240" y="126" class="ub-label-w">Location</text>
+  <text x="240" y="140" class="ub-label-w">Service</text>
+  <text x="240" y="153" class="ub-label" fill="#A5B4FC" font-size="7">QuadTree index</text>
+
+  <!-- QuadTree grid visual -->
+  <g transform="translate(200,168)">
+    <rect x="0" y="0" width="80" height="56" rx="3" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+    <line x1="40" y1="0" x2="40" y2="56" stroke="#E2E8F0" stroke-width="1"/>
+    <line x1="0"  y1="28" x2="80" y2="28" stroke="#E2E8F0" stroke-width="1"/>
+    <line x1="20" y1="0"  x2="20" y2="28" stroke="#E2E8F0" stroke-width="0.7"/>
+    <line x1="60" y1="28" x2="60" y2="56" stroke="#E2E8F0" stroke-width="0.7"/>
+    <circle cx="12" cy="42" r="4" fill="#D97706"/>
+    <circle cx="30" cy="14" r="4" fill="#D97706"/>
+    <circle cx="68" cy="44" r="4" fill="#16A34A"/>
+    <text x="40" y="68" class="ub-label" font-size="7" fill="#64748B">QuadTree</text>
+  </g>
+
+  <!-- Matching Service -->
+  <rect x="378" y="106" width="104" height="52" rx="6" fill="#4F46E5" stroke="#3730A3" stroke-width="1.5" class="ub-match"/>
+  <text x="430" y="126" class="ub-label-w">Matching</text>
+  <text x="430" y="140" class="ub-label-w">Service</text>
+  <text x="430" y="153" class="ub-label" fill="#A5B4FC" font-size="7">find nearest</text>
+
+  <!-- Loc Service ↔ Matching Service -->
+  <line x1="292" y1="132" x2="378" y2="132" stroke="#94A3B8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#ub-arr)"/>
+  <text x="335" y="124" class="ub-label" font-size="7" fill="#64748B">nearest query</text>
+
+  <!-- Rider (top right) -->
+  <rect x="490" y="22" width="88" height="40" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="534" y="39" class="ub-label" font-weight="700">Rider</text>
+  <text x="534" y="52" class="ub-label" font-size="8" fill="#64748B">requests ride</text>
+
+  <!-- Rider → Matching (animated dashes) -->
+  <line x1="516" y1="62" x2="460" y2="106"
+        stroke="#4F46E5" stroke-width="2" stroke-dasharray="7,4"
+        class="ub-req" marker-end="url(#ub-arr)"/>
+  <text x="504" y="84" class="ub-label" font-size="8" fill="#4F46E5" font-weight="600">request</text>
+
+  <!-- WebSocket: Matching → assigned Driver 3 -->
+  <path d="M430 158 Q430 236 58 218" stroke="#16A34A" stroke-width="2"
+        stroke-dasharray="10,5" fill="none" class="ub-ws" marker-end="url(#ub-arr-g)"/>
+  <text x="260" y="248" class="ub-label" font-size="9" fill="#16A34A" font-weight="700">WebSocket — assigned driver notified</text>
+
+  <!-- Legend -->
+  <rect x="12" y="258" width="576" height="18" rx="4" fill="#E2E8F0"/>
+  <text x="18" y="272" class="ub-label" text-anchor="start" font-size="8" fill="#475569">Driver GPS → QuadTree · Rider request → Matching Service → nearest driver (green) notified via WebSocket</text>
+</svg>
 </div>

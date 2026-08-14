@@ -1,5 +1,170 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .nd-box { fill: #F8FAFC; stroke: #E2E8F0; stroke-width: 1.5; rx: 6; }
+    .nd-accent { fill: #4F46E5; stroke: #3730A3; stroke-width: 1.5; }
+    .nd-label { font-family: sans-serif; font-size: 10px; fill: #1E293B; text-anchor: middle; }
+    .nd-label-sm { font-family: sans-serif; font-size: 8px; fill: #64748B; text-anchor: middle; }
+    .nd-label-white { font-family: sans-serif; font-size: 10px; fill: #fff; text-anchor: middle; font-weight: 600; }
+    .nd-api { font-family: sans-serif; font-size: 9px; fill: #16A34A; text-anchor: start; font-weight: 600; }
+    .nd-gate-label { font-family: sans-serif; font-size: 8px; fill: #D97706; text-anchor: middle; font-weight: 700; }
+
+    /* Message dot animations - fan out from service to 3 queues */
+    @keyframes nd-dot-src {
+      0%   { transform: translateX(0); opacity: 0; }
+      10%  { opacity: 1; }
+      40%  { transform: translateX(85px); opacity: 1; }
+      50%  { transform: translateX(85px); opacity: 0; }
+      100% { transform: translateX(85px); opacity: 0; }
+    }
+    @keyframes nd-dot-q1 {
+      0%,45% { transform: translate(0,0); opacity: 0; }
+      55%    { transform: translate(0,0); opacity: 1; }
+      75%    { transform: translate(62px,-50px); opacity: 1; }
+      85%    { transform: translate(62px,-50px); opacity: 0; }
+      100%   { transform: translate(62px,-50px); opacity: 0; }
+    }
+    @keyframes nd-dot-q2 {
+      0%,48% { transform: translate(0,0); opacity: 0; }
+      58%    { transform: translate(0,0); opacity: 1; }
+      78%    { transform: translate(62px,0px); opacity: 1; }
+      88%    { transform: translate(62px,0px); opacity: 0; }
+      100%   { transform: translate(62px,0px); opacity: 0; }
+    }
+    @keyframes nd-dot-q3 {
+      0%,51% { transform: translate(0,0); opacity: 0; }
+      61%    { transform: translate(0,0); opacity: 1; }
+      81%    { transform: translate(62px,50px); opacity: 1; }
+      91%    { transform: translate(62px,50px); opacity: 0; }
+      100%   { transform: translate(62px,50px); opacity: 0; }
+    }
+    @keyframes nd-dot-w1 {
+      0%,78% { transform: translate(0,0); opacity: 0; }
+      85%    { transform: translate(0,0); opacity: 1; }
+      97%    { transform: translate(62px,0); opacity: 1; }
+      100%   { transform: translate(62px,0); opacity: 0; }
+    }
+    @keyframes nd-dot-w2 {
+      0%,80% { transform: translate(0,0); opacity: 0; }
+      87%    { transform: translate(0,0); opacity: 1; }
+      97%    { transform: translate(62px,0); opacity: 1; }
+      100%   { transform: translate(62px,0); opacity: 0; }
+    }
+    @keyframes nd-dot-w3 {
+      0%,82% { transform: translate(0,0); opacity: 0; }
+      89%    { transform: translate(0,0); opacity: 1; }
+      97%    { transform: translate(62px,0); opacity: 1; }
+      100%   { transform: translate(62px,0); opacity: 0; }
+    }
+    .nd-dot-src { animation: nd-dot-src 3.6s ease-in-out infinite; }
+    .nd-dot-q1  { animation: nd-dot-q1  3.6s ease-in-out infinite; }
+    .nd-dot-q2  { animation: nd-dot-q2  3.6s ease-in-out infinite; }
+    .nd-dot-q3  { animation: nd-dot-q3  3.6s ease-in-out infinite; }
+    .nd-dot-w1  { animation: nd-dot-w1  3.6s ease-in-out infinite; }
+    .nd-dot-w2  { animation: nd-dot-w2  3.6s ease-in-out infinite; }
+    .nd-dot-w3  { animation: nd-dot-w3  3.6s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+  </style>
+
+  <!-- Background -->
+  <rect width="600" height="280" fill="#F1F5F9" rx="8"/>
+
+  <!-- Event Source -->
+  <rect x="12" y="110" width="80" height="40" rx="6" class="nd-box"/>
+  <text x="52" y="126" class="nd-label" font-weight="600">Event</text>
+  <text x="52" y="139" class="nd-label">Source</text>
+
+  <!-- Arrow: Event Source → Notification Service -->
+  <line x1="92" y1="130" x2="148" y2="130" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#nd-arr)"/>
+
+  <!-- Notification Service -->
+  <rect x="148" y="105" width="92" height="50" rx="6" class="nd-accent"/>
+  <text x="194" y="124" class="nd-label-white">Notification</text>
+  <text x="194" y="138" class="nd-label-white">Service</text>
+  <text x="194" y="151" class="nd-label" fill="#C7D2FE" font-size="8">event dispatcher</text>
+
+  <!-- Rate Limiter gate between service and queues -->
+  <!-- Gate shape: ⊢ -->
+  <line x1="240" y1="118" x2="240" y2="142" stroke="#D97706" stroke-width="2.5"/>
+  <line x1="240" y1="130" x2="252" y2="130" stroke="#D97706" stroke-width="2.5"/>
+  <text x="246" y="110" class="nd-gate-label">Rate</text>
+  <text x="246" y="119" class="nd-gate-label">Limiter</text>
+
+  <!-- Arrows from gate to queues -->
+  <line x1="252" y1="130" x2="258" y2="80"  stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+  <line x1="252" y1="130" x2="258" y2="130" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+  <line x1="252" y1="130" x2="258" y2="180" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+
+  <!-- Queues -->
+  <rect x="258" y="60" width="76" height="30" rx="5" class="nd-box"/>
+  <text x="296" y="79" class="nd-label" font-weight="600">Push Queue</text>
+
+  <rect x="258" y="115" width="76" height="30" rx="5" class="nd-box"/>
+  <text x="296" y="134" class="nd-label" font-weight="600">Email Queue</text>
+
+  <rect x="258" y="165" width="76" height="30" rx="5" class="nd-box"/>
+  <text x="296" y="184" class="nd-label" font-weight="600">SMS Queue</text>
+
+  <!-- Arrows queues → workers -->
+  <line x1="334" y1="75"  x2="354" y2="75"  stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+  <line x1="334" y1="130" x2="354" y2="130" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+  <line x1="334" y1="180" x2="354" y2="180" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+
+  <!-- Workers -->
+  <rect x="354" y="60" width="76" height="30" rx="5" fill="#EEF2FF" stroke="#A5B4FC" stroke-width="1.5"/>
+  <text x="392" y="79" class="nd-label" font-weight="600">Push Worker</text>
+
+  <rect x="354" y="115" width="76" height="30" rx="5" fill="#EEF2FF" stroke="#A5B4FC" stroke-width="1.5"/>
+  <text x="392" y="134" class="nd-label" font-weight="600">Email Worker</text>
+
+  <rect x="354" y="165" width="76" height="30" rx="5" fill="#EEF2FF" stroke="#A5B4FC" stroke-width="1.5"/>
+  <text x="392" y="184" class="nd-label" font-weight="600">SMS Worker</text>
+
+  <!-- Arrows workers → APIs -->
+  <line x1="430" y1="75"  x2="450" y2="75"  stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+  <line x1="430" y1="130" x2="450" y2="130" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+  <line x1="430" y1="180" x2="450" y2="180" stroke="#94A3B8" stroke-width="1.2" marker-end="url(#nd-arr)"/>
+
+  <!-- 3rd-party API labels -->
+  <rect x="450" y="60" width="70" height="24" rx="4" fill="#DCFCE7" stroke="#86EFAC" stroke-width="1.2"/>
+  <text x="485" y="76" class="nd-label" fill="#15803D" font-weight="700" font-size="9">FCM / APNS</text>
+
+  <rect x="450" y="118" width="70" height="24" rx="4" fill="#DCFCE7" stroke="#86EFAC" stroke-width="1.2"/>
+  <text x="485" y="134" class="nd-label" fill="#15803D" font-weight="700" font-size="9">SendGrid</text>
+
+  <rect x="450" y="168" width="70" height="24" rx="4" fill="#DCFCE7" stroke="#86EFAC" stroke-width="1.2"/>
+  <text x="485" y="184" class="nd-label" fill="#15803D" font-weight="700" font-size="9">Twilio</text>
+
+  <!-- Legend -->
+  <rect x="12" y="240" width="570" height="28" rx="4" fill="#E2E8F0"/>
+  <text x="20" y="258" class="nd-label" text-anchor="start" font-size="9" fill="#475569">Flow: Event → Notification Service → Rate Limiter → Queues → Workers → External APIs</text>
+
+  <!-- Animated message dots -->
+  <!-- Dot: Event Source → Service -->
+  <circle class="nd-dot-src" cx="95" cy="130" r="4" fill="#4F46E5" opacity="0"/>
+
+  <!-- Dot: Service → Push Queue -->
+  <circle class="nd-dot-q1" cx="242" cy="130" r="4" fill="#4F46E5" opacity="0"/>
+  <!-- Dot: Service → Email Queue -->
+  <circle class="nd-dot-q2" cx="242" cy="130" r="4" fill="#4F46E5" opacity="0"/>
+  <!-- Dot: Service → SMS Queue -->
+  <circle class="nd-dot-q3" cx="242" cy="130" r="4" fill="#4F46E5" opacity="0"/>
+
+  <!-- Dot: Push Queue → Worker -->
+  <circle class="nd-dot-w1" cx="337" cy="75" r="4" fill="#16A34A" opacity="0"/>
+  <!-- Dot: Email Queue → Worker -->
+  <circle class="nd-dot-w2" cx="337" cy="130" r="4" fill="#16A34A" opacity="0"/>
+  <!-- Dot: SMS Queue → Worker -->
+  <circle class="nd-dot-w3" cx="337" cy="180" r="4" fill="#16A34A" opacity="0"/>
+
+  <!-- Arrowhead marker -->
+  <defs>
+    <marker id="nd-arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#94A3B8"/>
+    </marker>
+  </defs>
+</svg>
 </div>

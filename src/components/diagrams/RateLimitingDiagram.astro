@@ -1,5 +1,133 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .rl-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  .drip-token { animation: drip 2s ease-in infinite; }
+  .drip-token2 { animation: drip 2s ease-in infinite; animation-delay: 1s; }
+  .req-arrow1 { animation: reqArrow 3s ease-in-out infinite; }
+  .req-arrow2 { animation: reqArrow 3s ease-in-out infinite; animation-delay: 1.5s; }
+  .token-fade1 { animation: tokenConsume 3s ease-in-out infinite; animation-delay: 0.5s; }
+  .token-fade2 { animation: tokenConsume 3s ease-in-out infinite; animation-delay: 2s; }
+  .pass-flash { animation: passFlash 3s ease-in-out infinite; }
+  .reject-flash { animation: rejectFlash 6s ease-in-out infinite; animation-delay: 3s; }
+  @keyframes drip {
+    0% { cy: 42; opacity: 0; r: 0; }
+    10% { opacity: 1; r: 5; }
+    60% { cy: 82; opacity: 1; r: 5; }
+    70%, 100% { cy: 82; opacity: 0; r: 5; }
+  }
+  @keyframes reqArrow {
+    0%, 5% { transform: translateX(-50px); opacity: 0; }
+    20% { opacity: 1; }
+    60% { transform: translateX(0px); opacity: 1; }
+    75%, 100% { transform: translateX(0px); opacity: 0; }
+  }
+  @keyframes tokenConsume {
+    0%, 40% { opacity: 1; r: 8; }
+    60% { opacity: 0; r: 0; }
+    100% { opacity: 1; r: 8; }
+  }
+  @keyframes passFlash {
+    0%, 40% { opacity: 0; }
+    55%, 70% { opacity: 1; }
+    85%, 100% { opacity: 0; }
+  }
+  @keyframes rejectFlash {
+    0%, 40% { opacity: 0; }
+    55%, 70% { opacity: 1; }
+    85%, 100% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+<text x="300" y="26" text-anchor="middle" font-family="system-ui" font-size="15" font-weight="800" fill="#1E293B">Rate Limiting — Token Bucket Algorithm</text>
+
+<!-- Token drip label from top -->
+<text x="300" y="44" text-anchor="middle" class="rl-label" fill="#D97706" font-weight="600">10 tokens / second (refill rate)</text>
+<!-- Drip pipe -->
+<rect x="293" y="46" width="14" height="22" rx="3" fill="#FEF3C7" stroke="#D97706" stroke-width="1.5"/>
+<line x1="300" y1="68" x2="300" y2="84" stroke="#D97706" stroke-width="2"/>
+<!-- Animated drip drops -->
+<circle cx="300" cy="60" r="5" fill="#D97706" class="drip-token"/>
+<circle cx="300" cy="60" r="5" fill="#FBBF24" class="drip-token2"/>
+
+<!-- TOKEN BUCKET (center) -->
+<!-- Bucket body -->
+<path d="M240,82 L240,195 Q240,210 260,210 L340,210 Q360,210 360,195 L360,82 Z" fill="#EEF2FF" stroke="#4F46E5" stroke-width="2.5"/>
+<!-- Bucket top rim -->
+<rect x="232" y="78" width="136" height="12" rx="6" fill="#4F46E5"/>
+<text x="300" y="73" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#1E293B">Token Bucket</text>
+
+<!-- Tokens inside bucket (static circles) -->
+<circle cx="270" cy="165" r="9" fill="#4F46E5" opacity="0.9"/>
+<circle cx="300" cy="155" r="9" fill="#4F46E5" opacity="0.9"/>
+<circle cx="330" cy="165" r="9" fill="#4F46E5" opacity="0.9"/>
+<circle cx="280" cy="140" r="9" fill="#6366F1" opacity="0.8"/>
+<circle cx="315" cy="140" r="9" fill="#6366F1" opacity="0.8"/>
+<!-- Tokens that get consumed (animated) -->
+<circle cx="285" cy="190" r="8" fill="#818CF8" class="token-fade1"/>
+<circle cx="318" cy="188" r="8" fill="#818CF8" class="token-fade2"/>
+<!-- Token count label -->
+<text x="300" y="115" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="800" fill="#4F46E5">5 tokens</text>
+<text x="300" y="130" text-anchor="middle" class="rl-label">max capacity: 10</text>
+
+<!-- Bucket bottom drain hole -->
+<ellipse cx="300" cy="210" rx="20" ry="6" fill="#C7D2FE" stroke="#4F46E5" stroke-width="1.5"/>
+
+<!-- REQUESTS from left -->
+<!-- Request 1 (green - passes) -->
+<g class="req-arrow1">
+  <rect x="80" y="132" width="70" height="22" rx="6" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="115" y="147" text-anchor="middle" font-family="system-ui" font-size="9" font-weight="700" fill="#1E293B">Request</text>
+</g>
+<line x1="62" y1="143" x2="158" y2="143" stroke="#4F46E5" stroke-width="1.5" stroke-dasharray="4,3"/>
+<polygon points="155,138 167,143 155,148" fill="#4F46E5" opacity="0.5"/>
+<text x="108" y="130" text-anchor="middle" class="rl-label">Incoming</text>
+<text x="108" y="168" text-anchor="middle" class="rl-label">requests</text>
+
+<!-- Request 2 (red - blocked) -->
+<g class="req-arrow2">
+  <rect x="80" y="170" width="70" height="22" rx="6" fill="#FFF1F2" stroke="#FECDD3" stroke-width="1.5"/>
+  <text x="115" y="185" text-anchor="middle" font-family="system-ui" font-size="9" font-weight="700" fill="#9F1239">Request</text>
+</g>
+
+<!-- Clients label -->
+<rect x="14" y="118" width="56" height="36" rx="6" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+<text x="42" y="132" text-anchor="middle" font-family="system-ui" font-size="9" font-weight="700" fill="#1E293B">Clients</text>
+<text x="42" y="146" text-anchor="middle" class="rl-label">multiple</text>
+
+<!-- Arrow client → requests -->
+<line x1="70" y1="136" x2="82" y2="136" stroke="#CBD5E1" stroke-width="1.5"/>
+<line x1="70" y1="136" x2="70" y2="180" stroke="#CBD5E1" stroke-width="1.5"/>
+<line x1="70" y1="180" x2="82" y2="180" stroke="#CBD5E1" stroke-width="1.5"/>
+
+<!-- Arrow from bucket to allowed/blocked -->
+<line x1="362" y1="140" x2="430" y2="110" stroke="#16A34A" stroke-width="2"/>
+<polygon points="426,105 438,110 428,117" fill="#16A34A"/>
+<line x1="362" y1="165" x2="430" y2="195" stroke="#EF4444" stroke-width="2"/>
+<polygon points="426,191 438,195 428,202" fill="#EF4444"/>
+
+<!-- ALLOWED box -->
+<rect x="432" y="85" width="140" height="50" rx="8" fill="#F0FDF4" stroke="#16A34A" stroke-width="2" class="pass-flash"/>
+<text x="502" y="107" text-anchor="middle" font-family="system-ui" font-size="13" font-weight="800" fill="#16A34A">ALLOWED</text>
+<text x="502" y="124" text-anchor="middle" class="rl-label" fill="#15803D">Token consumed</text>
+<!-- Checkmark -->
+<text x="580" y="112" text-anchor="middle" font-family="system-ui" font-size="18" fill="#16A34A">&#10003;</text>
+
+<!-- BLOCKED box -->
+<rect x="432" y="170" width="140" height="52" rx="8" fill="#FFF1F2" stroke="#EF4444" stroke-width="2"/>
+<text x="502" y="190" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="800" fill="#DC2626">429 Too Many</text>
+<text x="502" y="206" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="800" fill="#DC2626">Requests</text>
+<text x="502" y="217" text-anchor="middle" class="rl-label" fill="#9F1239">No token available</text>
+<!-- X mark -->
+<text x="580" y="197" text-anchor="middle" font-family="system-ui" font-size="18" fill="#EF4444">&#10007;</text>
+
+<!-- Bottom note -->
+<rect x="12" y="242" width="574" height="30" rx="6" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1"/>
+<text x="300" y="255" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#4F46E5">Other algorithms:</text>
+<text x="300" y="267" text-anchor="middle" font-family="system-ui" font-size="10" fill="#4338CA">Leaky Bucket  ·  Fixed Window Counter  ·  Sliding Window Log  ·  Sliding Window Counter</text>
+</svg>
 </div>

@@ -1,5 +1,143 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="yt-arr" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="yt-arr-grn" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#16A34A"/>
+    </marker>
+    <marker id="yt-arr-blu" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#0284C7"/>
+    </marker>
+  </defs>
+  <style>
+    /* Upload dot travels L→R */
+    @keyframes yt-upload {
+      0%   { cx:55;  opacity:0; }
+      4%   { opacity:1; }
+      20%  { cx:155; }
+      38%  { cx:260; }
+      56%  { cx:368; }
+      74%  { cx:480; opacity:1; }
+      80%  { opacity:0; cx:480; }
+      100% { cx:55;  opacity:0; }
+    }
+
+    /* CDN HIT pulse — stream path */
+    @keyframes yt-hit-pulse {
+      0%,100% { stroke-width:1.5; opacity:0.5; }
+      50%     { stroke-width:3;   opacity:1; }
+    }
+
+    /* Stream HIT dot from client to CDN */
+    @keyframes yt-stream-hit {
+      0%   { cx:55; cy:208; opacity:0; }
+      4%   { opacity:1; }
+      30%  { cx:220; cy:208; opacity:1; }
+      36%  { opacity:0; cx:220; cy:208; }
+      100% { cx:55; cy:208; opacity:0; }
+    }
+
+    /* Dashed line glow for MISS path */
+    @keyframes yt-miss-pulse {
+      0%,60%,100% { opacity:0.3; }
+      80%          { opacity:0.9; }
+    }
+
+    .yt-upload-dot { animation: yt-upload 6s ease-in-out infinite; }
+    .yt-stream-dot { animation: yt-stream-hit 6s ease-in-out infinite; }
+    .yt-hit-line   { animation: yt-hit-pulse 2s ease-in-out infinite; }
+    .yt-miss-line  { animation: yt-miss-pulse 6s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">YouTube — Upload &amp; Streaming</text>
+
+  <!-- ═══════ UPLOAD FLOW (top half) ═══════ -->
+  <rect x="10" y="34" width="580" height="104" rx="8" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1"/>
+  <text x="18" y="50" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#16A34A">UPLOAD FLOW</text>
+
+  <!-- Client -->
+  <rect x="16" y="56" width="78" height="44" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="55" y="76"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#1E293B">Client</text>
+  <text x="55" y="90"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">upload</text>
+
+  <line x1="94" y1="78" x2="112" y2="78" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#yt-arr)"/>
+
+  <!-- Upload Service -->
+  <rect x="114" y="56" width="88" height="44" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="158" y="74"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#1E293B">Upload</text>
+  <text x="158" y="88"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#1E293B">Service</text>
+
+  <line x1="202" y1="78" x2="220" y2="78" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#yt-arr)"/>
+
+  <!-- Object Storage -->
+  <rect x="222" y="56" width="90" height="44" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="267" y="74"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#1E293B">Object</text>
+  <text x="267" y="88"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#1E293B">Storage</text>
+
+  <line x1="312" y1="78" x2="330" y2="78" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#yt-arr)"/>
+
+  <!-- Transcoding Workers -->
+  <rect x="332" y="52" width="100" height="52" rx="6" fill="#FEF3C7" stroke="#D97706" stroke-width="1.5"/>
+  <text x="382" y="72"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="700" fill="#D97706">Transcoding</text>
+  <text x="382" y="85"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="700" fill="#D97706">Workers</text>
+  <text x="382" y="98"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="7.5" fill="#92400E">480p 720p 1080p</text>
+
+  <line x1="432" y1="78" x2="452" y2="78" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#yt-arr)"/>
+
+  <!-- CDN (upload) -->
+  <rect x="454" y="56" width="126" height="44" rx="6" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.5"/>
+  <text x="517" y="74"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#4F46E5">CDN</text>
+  <text x="517" y="88"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#6366F1">Edge distribution</text>
+
+  <!-- Upload animated dot -->
+  <circle r="5" fill="#16A34A" class="yt-upload-dot">
+    <animate attributeName="cx" values="55;155;267;382;517;517;55" keyTimes="0;0.20;0.38;0.56;0.74;0.80;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="78;78;78;78;78;78;78" keyTimes="0;0.20;0.38;0.56;0.74;0.80;1" dur="6s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;1;1;1;1;0;0" keyTimes="0;0.04;0.74;0.74;0.80;0.82;1" dur="6s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ═══════ STREAM FLOW (bottom half) ═══════ -->
+  <rect x="10" y="148" width="580" height="120" rx="8" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1"/>
+  <text x="18" y="164" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#0284C7">STREAM FLOW</text>
+
+  <!-- Client (stream) -->
+  <rect x="16" y="172" width="78" height="44" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="55" y="192" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#1E293B">Client</text>
+  <text x="55" y="206" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">watch</text>
+
+  <!-- Arrow Client→CDN Edge (HIT) -->
+  <line x1="94" y1="194" x2="196" y2="194" stroke="#16A34A" stroke-width="2" class="yt-hit-line" marker-end="url(#yt-arr-grn)"/>
+  <text x="145" y="186" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="700" fill="#16A34A">Cache HIT</text>
+
+  <!-- CDN Edge -->
+  <rect x="198" y="168" width="100" height="52" rx="6" fill="#F0FDF4" stroke="#16A34A" stroke-width="2"/>
+  <text x="248" y="188" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#16A34A">CDN Edge</text>
+  <text x="248" y="202" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#16A34A">PoP Server</text>
+  <rect x="210" y="210" width="76" height="14" rx="3" fill="#DCFCE7"/>
+  <text x="248" y="221" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" font-weight="700" fill="#16A34A">HIT → serve fast</text>
+
+  <!-- MISS arrow: CDN Edge - - - → Origin -->
+  <line x1="298" y1="210" x2="396" y2="230" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="5 3" class="yt-miss-line" marker-end="url(#yt-arr)"/>
+  <text x="352" y="222" font-family="system-ui,sans-serif" font-size="8.5" fill="#94A3B8">Cache MISS</text>
+
+  <!-- Origin Server -->
+  <rect x="398" y="210" width="100" height="44" rx="6" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="448" y="230" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#64748B">Origin</text>
+  <text x="448" y="244" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8">Server</text>
+
+  <!-- Animated stream dot (HIT path) -->
+  <circle r="5" fill="#16A34A" class="yt-stream-dot"/>
+
+  <!-- Footer legend -->
+  <text x="300" y="268" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#475569">CDN serves 95%+ of requests from edge PoPs. Only cache misses reach the origin server, reducing load by 20x.</text>
+</svg>
 </div>

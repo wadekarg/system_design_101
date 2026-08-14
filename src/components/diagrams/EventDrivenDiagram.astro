@@ -1,5 +1,142 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ed-arr" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="ed-arr-acc" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#4F46E5"/>
+    </marker>
+    <marker id="ed-arr-grn" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#16A34A"/>
+    </marker>
+  </defs>
+  <style>
+    /* 8s cycle: Pub A sends at 0s, Pub B sends at 1.5s, both fan-out to subs at 2.5s */
+
+    /* Message A: PubA → Bus */
+    @keyframes ed-msgA-x { 0%{cx:105} 25%{cx:220} 100%{cx:220} }
+    @keyframes ed-msgA-y { 0%{cy:90}  25%{cy:130} 100%{cy:130} }
+    @keyframes ed-msgA-o { 0%{opacity:0} 3%{opacity:1} 22%{opacity:1} 27%{opacity:0} 100%{opacity:0} }
+
+    /* Message B: PubB → Bus (staggered) */
+    @keyframes ed-msgB-x { 0%{cx:105} 19%{cx:105} 40%{cx:220} 100%{cx:220} }
+    @keyframes ed-msgB-y { 0%{cy:180} 19%{cy:180} 40%{cy:130} 100%{cy:130} }
+    @keyframes ed-msgB-o { 0%{opacity:0} 20%{opacity:0} 21%{opacity:1} 37%{opacity:1} 42%{opacity:0} 100%{opacity:0} }
+
+    /* Fan-out dots to subs A, B, C simultaneously — after both messages arrive */
+    @keyframes ed-sub-a-x { 0%{cx:370} 50%{cx:370} 65%{cx:500} 75%{cx:500} 100%{cx:500} }
+    @keyframes ed-sub-a-y { 0%{cy:130} 50%{cy:130} 65%{cy:76}  75%{cy:76}  100%{cy:76}  }
+    @keyframes ed-sub-a-o { 0%{opacity:0} 48%{opacity:0} 51%{opacity:1} 72%{opacity:1} 78%{opacity:0} 100%{opacity:0} }
+
+    @keyframes ed-sub-b-x { 0%{cx:370} 50%{cx:370} 65%{cx:500} 75%{cx:500} 100%{cx:500} }
+    @keyframes ed-sub-b-y { 0%{cy:130} 50%{cy:130} 65%{cy:132} 75%{cy:132} 100%{cy:132} }
+    @keyframes ed-sub-b-o { 0%{opacity:0} 48%{opacity:0} 53%{opacity:1} 72%{opacity:1} 78%{opacity:0} 100%{opacity:0} }
+
+    @keyframes ed-sub-c-x { 0%{cx:370} 50%{cx:370} 65%{cx:500} 75%{cx:500} 100%{cx:500} }
+    @keyframes ed-sub-c-y { 0%{cy:130} 50%{cy:130} 65%{cy:188} 75%{cy:188} 100%{cy:188} }
+    @keyframes ed-sub-c-o { 0%{opacity:0} 48%{opacity:0} 55%{opacity:1} 72%{opacity:1} 78%{opacity:0} 100%{opacity:0} }
+
+    @keyframes ed-bus-glow {
+      0%,45%  { opacity:1; }
+      50%     { opacity:0.7; }
+      55%,100%{ opacity:1; }
+    }
+
+    .ed-msgA { animation: ed-msgA-o 8s linear infinite; }
+    .ed-msgB { animation: ed-msgB-o 8s linear infinite; }
+    .ed-subA { animation: ed-sub-a-o 8s linear infinite; }
+    .ed-subB { animation: ed-sub-b-o 8s linear infinite; }
+    .ed-subC { animation: ed-sub-c-o 8s linear infinite; }
+    .ed-bus  { animation: ed-bus-glow 8s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="24" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">Event-Driven Architecture</text>
+
+  <!-- ── PUBLISHERS (left) ── -->
+  <rect x="12" y="60" width="100" height="56" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="62" y="85"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#1E293B">Publisher A</text>
+  <text x="62" y="100" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Order Service</text>
+
+  <rect x="12" y="152" width="100" height="56" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="62" y="177" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#1E293B">Publisher B</text>
+  <text x="62" y="192" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">User Service</text>
+
+  <!-- Arrows pub→bus -->
+  <line x1="112" y1="90"  x2="220" y2="120" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ed-arr)"/>
+  <line x1="112" y1="180" x2="220" y2="140" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ed-arr)"/>
+
+  <!-- ── EVENT BUS (center, cylinder shape) ── -->
+  <g class="ed-bus">
+    <!-- cylinder body -->
+    <rect x="222" y="100" width="140" height="60" rx="0" fill="#4F46E5"/>
+    <!-- top ellipse -->
+    <ellipse cx="292" cy="100" rx="70" ry="12" fill="#6366F1"/>
+    <!-- bottom ellipse -->
+    <ellipse cx="292" cy="160" rx="70" ry="12" fill="#3730A3"/>
+    <text x="292" y="128" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white">Event Bus</text>
+    <text x="292" y="145" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#C7D2FE">Kafka / NATS</text>
+  </g>
+
+  <!-- Arrows bus→subs -->
+  <line x1="362" y1="120" x2="450" y2="76"  stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ed-arr)"/>
+  <line x1="362" y1="130" x2="450" y2="130" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ed-arr)"/>
+  <line x1="362" y1="140" x2="450" y2="184" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ed-arr)"/>
+
+  <!-- ── SUBSCRIBERS (right) ── -->
+  <rect x="452" y="50"  width="100" height="52" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="502" y="74"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#16A34A">Sub A</text>
+  <text x="502" y="88"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Email Svc</text>
+
+  <rect x="452" y="106" width="100" height="52" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="502" y="130" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#16A34A">Sub B</text>
+  <text x="502" y="144" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Analytics</text>
+
+  <rect x="452" y="162" width="100" height="52" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="502" y="186" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#16A34A">Sub C</text>
+  <text x="502" y="200" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#64748B">Inventory</text>
+
+  <!-- Animated message dots -->
+  <!-- PubA → Bus -->
+  <rect width="16" height="10" rx="2" fill="#4F46E5" class="ed-msgA">
+    <animate attributeName="x" values="97;212;212" keyTimes="0;0.25;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="y" values="85;125;125" keyTimes="0;0.25;1" dur="8s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- PubB → Bus -->
+  <rect width="16" height="10" rx="2" fill="#D97706" class="ed-msgB">
+    <animate attributeName="x" values="97;97;212;212" keyTimes="0;0.19;0.40;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="y" values="175;175;125;125" keyTimes="0;0.19;0.40;1" dur="8s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Fan-out: Bus → Sub A -->
+  <circle r="5" fill="#16A34A" class="ed-subA">
+    <animate attributeName="cx" values="370;370;500;500" keyTimes="0;0.50;0.65;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="130;130;76;76"   keyTimes="0;0.50;0.65;1" dur="8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Fan-out: Bus → Sub B -->
+  <circle r="5" fill="#16A34A" class="ed-subB">
+    <animate attributeName="cx" values="370;370;500;500"   keyTimes="0;0.50;0.65;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="130;130;132;132"   keyTimes="0;0.50;0.65;1" dur="8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Fan-out: Bus → Sub C -->
+  <circle r="5" fill="#16A34A" class="ed-subC">
+    <animate attributeName="cx" values="370;370;500;500"   keyTimes="0;0.50;0.65;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="130;130;188;188"   keyTimes="0;0.50;0.65;1" dur="8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Footer -->
+  <rect x="10" y="228" width="580" height="42" rx="6" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="300" y="246" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#64748B">DECOUPLED PRODUCERS &amp; CONSUMERS</text>
+  <text x="300" y="260" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#475569">Publishers fire events without knowing who listens. Each subscriber gets its own copy — independently scalable.</text>
+</svg>
 </div>

@@ -1,5 +1,61 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @keyframes growBar1 { from { width: 0; } to { width: 22px; } }
+    @keyframes growBar2 { from { width: 0; } to { width: 58px; } }
+    @keyframes growBar3 { from { width: 0; } to { width: 118px; } }
+    @keyframes growBar4 { from { width: 0; } to { width: 200px; } }
+    @keyframes growBar5 { from { width: 0; } to { width: 298px; } }
+    .bar1 { animation: growBar1 1.0s 0.2s ease-out forwards; width: 0; }
+    .bar2 { animation: growBar2 1.0s 0.5s ease-out forwards; width: 0; }
+    .bar3 { animation: growBar3 1.0s 0.8s ease-out forwards; width: 0; }
+    .bar4 { animation: growBar4 1.0s 1.1s ease-out forwards; width: 0; }
+    .bar5 { animation: growBar5 1.0s 1.4s ease-out forwards; width: 0; }
+    @keyframes fadeLabel { from { opacity: 0; } to { opacity: 1; } }
+    .lbl1 { animation: fadeLabel 0.4s 1.2s ease-out forwards; opacity: 0; }
+    .lbl2 { animation: fadeLabel 0.4s 1.5s ease-out forwards; opacity: 0; }
+    .lbl3 { animation: fadeLabel 0.4s 1.8s ease-out forwards; opacity: 0; }
+    .lbl4 { animation: fadeLabel 0.4s 2.1s ease-out forwards; opacity: 0; }
+    .lbl5 { animation: fadeLabel 0.4s 2.4s ease-out forwards; opacity: 0; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <!-- Title -->
+  <text x="300" y="24" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B" text-anchor="middle">Latency Comparison (approx. log scale)</text>
+
+  <!-- Axis line -->
+  <line x1="158" y1="50" x2="158" y2="265" stroke="#E2E8F0" stroke-width="1.5"/>
+
+  <!-- Row 1: L1 Cache — 1ns — indigo -->
+  <text x="148" y="80" font-family="system-ui,sans-serif" font-size="11" fill="#1E293B" text-anchor="end">L1 Cache</text>
+  <rect class="bar1" x="162" y="66" height="22" rx="4" fill="#4F46E5"/>
+  <text class="lbl1" x="188" y="80" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#4F46E5">1 ns</text>
+
+  <!-- Row 2: RAM — 100ns — blue -->
+  <text x="148" y="126" font-family="system-ui,sans-serif" font-size="11" fill="#1E293B" text-anchor="end">RAM</text>
+  <rect class="bar2" x="162" y="112" height="22" rx="4" fill="#2563EB"/>
+  <text class="lbl2" x="224" y="126" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#2563EB">100 ns</text>
+
+  <!-- Row 3: SSD — 100μs — green -->
+  <text x="148" y="172" font-family="system-ui,sans-serif" font-size="11" fill="#1E293B" text-anchor="end">SSD</text>
+  <rect class="bar3" x="162" y="158" height="22" rx="4" fill="#16A34A"/>
+  <text class="lbl3" x="284" y="172" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#16A34A">100 μs</text>
+
+  <!-- Row 4: HDD — 10ms — amber -->
+  <text x="148" y="218" font-family="system-ui,sans-serif" font-size="11" fill="#1E293B" text-anchor="end">HDD</text>
+  <rect class="bar4" x="162" y="204" height="22" rx="4" fill="#D97706"/>
+  <text class="lbl4" x="366" y="218" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#D97706">10 ms</text>
+
+  <!-- Row 5: Network — 100ms — red -->
+  <text x="148" y="258" font-family="system-ui,sans-serif" font-size="11" fill="#1E293B" text-anchor="end">Network RTT</text>
+  <rect class="bar5" x="162" y="244" height="22" rx="4" fill="#DC2626"/>
+  <text class="lbl5" x="464" y="258" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#DC2626">100 ms</text>
+
+  <!-- Note -->
+  <text x="300" y="276" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Bar lengths are proportional on a compressed log scale for visual clarity</text>
+</svg>
 </div>

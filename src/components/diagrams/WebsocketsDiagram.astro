@@ -1,5 +1,128 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .ws-label { font-family: system-ui, sans-serif; font-size: 10px; fill: #64748B; }
+  /* WS messages L→R */
+  .ws-msg-lr1 { animation: wsLR 2.4s ease-in-out infinite; }
+  .ws-msg-lr2 { animation: wsLR 2.4s ease-in-out infinite; animation-delay: 0.8s; }
+  /* WS messages R→L */
+  .ws-msg-rl1 { animation: wsRL 2.4s ease-in-out infinite; animation-delay: 0.4s; }
+  .ws-msg-rl2 { animation: wsRL 2.4s ease-in-out infinite; animation-delay: 1.2s; }
+  /* HTTP request/response */
+  .http-req1 { animation: httpReq 3.6s ease-in-out infinite; }
+  .http-res1 { animation: httpRes 3.6s ease-in-out infinite; animation-delay: 1.8s; }
+  @keyframes wsLR {
+    0% { transform: translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    80% { transform: translateX(220px); opacity: 1; }
+    95%, 100% { transform: translateX(220px); opacity: 0; }
+  }
+  @keyframes wsRL {
+    0% { transform: translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    80% { transform: translateX(-220px); opacity: 1; }
+    95%, 100% { transform: translateX(-220px); opacity: 0; }
+  }
+  @keyframes httpReq {
+    0%, 5% { transform: translateX(0); opacity: 0; }
+    15% { opacity: 1; }
+    45% { transform: translateX(200px); opacity: 1; }
+    55%, 100% { transform: translateX(200px); opacity: 0; }
+  }
+  @keyframes httpRes {
+    0%, 5% { transform: translateX(0); opacity: 0; }
+    15% { opacity: 1; }
+    45% { transform: translateX(-200px); opacity: 1; }
+    55%, 100% { transform: translateX(-200px); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+</style>
+
+<rect x="2" y="2" width="596" height="276" rx="10" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+
+<!-- Divider between WS and HTTP sections -->
+<line x1="12" y1="148" x2="588" y2="148" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="6,4"/>
+
+<!-- ========= TOP: WebSocket ========= -->
+<text x="14" y="22" font-family="system-ui" font-size="11" font-weight="700" fill="#4F46E5">WebSocket</text>
+<rect x="12" y="18" width="100" height="14" rx="3" fill="#EEF2FF" opacity="0.5"/>
+<text x="62" y="28" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#4F46E5">WebSocket</text>
+
+<!-- WS Client -->
+<rect x="30" y="42" width="100" height="80" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="2"/>
+<text x="80" y="75" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="800" fill="white">Client</text>
+<text x="80" y="92" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">Browser /</text>
+<text x="80" y="104" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">App</text>
+
+<!-- WS Server -->
+<rect x="460" y="42" width="110" height="80" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="2"/>
+<text x="515" y="75" text-anchor="middle" font-family="system-ui" font-size="12" font-weight="800" fill="white">Server</text>
+<text x="515" y="92" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">Push enabled</text>
+<text x="515" y="104" text-anchor="middle" font-family="system-ui" font-size="9" fill="#C7D2FE">real-time</text>
+
+<!-- Persistent connection bar -->
+<rect x="132" y="75" width="326" height="14" rx="7" fill="#C7D2FE" stroke="#818CF8" stroke-width="1.5"/>
+<text x="295" y="86" text-anchor="middle" font-family="system-ui" font-size="9" font-weight="700" fill="#3730A3">WS Connection — persistent, full-duplex</text>
+
+<!-- Animated WS messages L→R -->
+<g class="ws-msg-lr1">
+  <rect x="140" y="57" width="55" height="16" rx="8" fill="#16A34A"/>
+  <text x="167" y="69" text-anchor="middle" font-family="system-ui" font-size="8" fill="white">chat msg</text>
+</g>
+<g class="ws-msg-lr2">
+  <rect x="140" y="57" width="55" height="16" rx="8" fill="#16A34A"/>
+  <text x="167" y="69" text-anchor="middle" font-family="system-ui" font-size="8" fill="white">live data</text>
+</g>
+
+<!-- Animated WS messages R→L -->
+<g class="ws-msg-rl1">
+  <rect x="403" y="95" width="55" height="16" rx="8" fill="#D97706"/>
+  <text x="430" y="107" text-anchor="middle" font-family="system-ui" font-size="8" fill="white">push evt</text>
+</g>
+<g class="ws-msg-rl2">
+  <rect x="403" y="95" width="55" height="16" rx="8" fill="#D97706"/>
+  <text x="430" y="107" text-anchor="middle" font-family="system-ui" font-size="8" fill="white">notify</text>
+</g>
+
+<!-- WS use cases -->
+<text x="295" y="140" text-anchor="middle" font-family="system-ui" font-size="9" fill="#4F46E5">Chat · Live dashboards · Multiplayer games · Collaborative editing</text>
+
+<!-- ========= BOTTOM: HTTP comparison ========= -->
+<text x="62" y="163" text-anchor="middle" font-family="system-ui" font-size="10" font-weight="700" fill="#94A3B8">HTTP (comparison — half-duplex, request/response)</text>
+
+<!-- HTTP Client -->
+<rect x="30" y="172" width="100" height="70" rx="8" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+<text x="80" y="203" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="700" fill="#334155">Client</text>
+<text x="80" y="220" text-anchor="middle" class="ws-label">Polls server</text>
+<text x="80" y="234" text-anchor="middle" class="ws-label">for updates</text>
+
+<!-- HTTP Server -->
+<rect x="460" y="172" width="110" height="70" rx="8" fill="#F1F5F9" stroke="#CBD5E1" stroke-width="1.5"/>
+<text x="515" y="203" text-anchor="middle" font-family="system-ui" font-size="11" font-weight="700" fill="#334155">Server</text>
+<text x="515" y="220" text-anchor="middle" class="ws-label">Responds</text>
+<text x="515" y="234" text-anchor="middle" class="ws-label">only on req</text>
+
+<!-- HTTP request arrow (top lane) -->
+<line x1="132" y1="193" x2="458" y2="193" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="5,3"/>
+<polygon points="454,188 466,193 454,198" fill="#94A3B8"/>
+<text x="295" y="186" text-anchor="middle" class="ws-label">→ request</text>
+<!-- HTTP response arrow (bottom lane) -->
+<line x1="458" y1="212" x2="132" y2="212" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="5,3"/>
+<polygon points="136,207 124,212 136,217" fill="#94A3B8"/>
+<text x="295" y="228" text-anchor="middle" class="ws-label">← response</text>
+
+<!-- Animated HTTP request dot -->
+<g class="http-req1">
+  <circle cx="140" cy="193" r="5" fill="#94A3B8"/>
+</g>
+<!-- Animated HTTP response dot -->
+<g class="http-res1">
+  <circle cx="458" cy="212" r="5" fill="#94A3B8"/>
+</g>
+
+<!-- Overhead label -->
+<text x="295" y="255" text-anchor="middle" class="ws-label" fill="#94A3B8">New TCP+TLS handshake per request — higher latency &amp; overhead</text>
+</svg>
 </div>

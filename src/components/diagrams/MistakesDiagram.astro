@@ -1,5 +1,97 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .md-label { font-family: sans-serif; font-size: 10px; fill: #1E293B; text-anchor: middle; }
+    .md-title { font-family: sans-serif; font-size: 11px; fill: #991B1B; text-anchor: middle; font-weight: 700; }
+    .md-sub   { font-family: sans-serif; font-size: 8.5px; fill: #92400E; text-anchor: middle; }
+
+    /* Card pulse animations - each card highlights in sequence */
+    @keyframes md-card1 {
+      0%,5%    { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+      12%,28%  { fill: #FEF08A; stroke: #DC2626; stroke-width: 3; filter: drop-shadow(0 0 6px #DC2626); }
+      35%,100% { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+    }
+    @keyframes md-card2 {
+      0%,28%   { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+      35%,51%  { fill: #FEF08A; stroke: #DC2626; stroke-width: 3; filter: drop-shadow(0 0 6px #DC2626); }
+      58%,100% { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+    }
+    @keyframes md-card3 {
+      0%,51%   { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+      58%,74%  { fill: #FEF08A; stroke: #DC2626; stroke-width: 3; filter: drop-shadow(0 0 6px #DC2626); }
+      81%,100% { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+    }
+    @keyframes md-card4 {
+      0%,74%   { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+      81%,97%  { fill: #FEF08A; stroke: #DC2626; stroke-width: 3; filter: drop-shadow(0 0 6px #DC2626); }
+      100%     { fill: #FEF3C7; stroke: #DC2626; stroke-width: 1.5; }
+    }
+
+    .md-c1 { animation: md-card1 6s ease-in-out infinite; }
+    .md-c2 { animation: md-card2 6s ease-in-out infinite; }
+    .md-c3 { animation: md-card3 6s ease-in-out infinite; }
+    .md-c4 { animation: md-card4 6s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+  </style>
+
+  <rect width="600" height="280" fill="#F1F5F9" rx="8"/>
+  <text x="300" y="20" class="md-label" font-size="12" font-weight="700" fill="#991B1B">Common Interview Mistakes</text>
+
+  <!-- Card 1: Top-left — Jumping to solution -->
+  <rect x="16" y="30" width="270" height="108" rx="8" class="md-c1"/>
+  <!-- Warning triangle SVG icon -->
+  <polygon points="106,46 88,80 124,80" fill="#DC2626" stroke="#991B1B" stroke-width="1.5"/>
+  <text x="106" y="73" class="md-label" fill="#fff" font-size="14" font-weight="900">!</text>
+  <!-- Title -->
+  <text x="151" y="52" class="md-title">Jumping to</text>
+  <text x="151" y="66" class="md-title">Solution</text>
+  <text x="151" y="82" class="md-sub">Before clarifying</text>
+  <text x="151" y="94" class="md-sub">requirements</text>
+  <!-- Divider -->
+  <line x1="30" y1="100" x2="272" y2="100" stroke="#FCA5A5" stroke-width="1"/>
+  <text x="151" y="120" class="md-sub" font-size="8">Tip: Always ask clarifying questions first.</text>
+  <text x="151" y="132" class="md-sub" font-size="8">Understand before designing.</text>
+
+  <!-- Card 2: Top-right — Skipping scale estimation -->
+  <rect x="314" y="30" width="270" height="108" rx="8" class="md-c2"/>
+  <polygon points="404,46 386,80 422,80" fill="#DC2626" stroke="#991B1B" stroke-width="1.5"/>
+  <text x="404" y="73" class="md-label" fill="#fff" font-size="14" font-weight="900">!</text>
+  <text x="449" y="52" class="md-title">Skipping Scale</text>
+  <text x="449" y="66" class="md-title">Estimation</text>
+  <text x="449" y="82" class="md-sub">No capacity planning</text>
+  <text x="449" y="94" class="md-sub">before architecture</text>
+  <line x1="328" y1="100" x2="570" y2="100" stroke="#FCA5A5" stroke-width="1"/>
+  <text x="449" y="120" class="md-sub" font-size="8">Tip: Estimate QPS, storage, bandwidth</text>
+  <text x="449" y="132" class="md-sub" font-size="8">early — shapes every decision.</text>
+
+  <!-- Card 3: Bottom-left — Ignoring failure modes -->
+  <rect x="16" y="152" width="270" height="108" rx="8" class="md-c3"/>
+  <polygon points="106,168 88,202 124,202" fill="#DC2626" stroke="#991B1B" stroke-width="1.5"/>
+  <text x="106" y="195" class="md-label" fill="#fff" font-size="14" font-weight="900">!</text>
+  <text x="151" y="174" class="md-title">Ignoring Failure</text>
+  <text x="151" y="188" class="md-title">Modes</text>
+  <text x="151" y="204" class="md-sub">No fault tolerance plan</text>
+  <text x="151" y="216" class="md-sub">or recovery strategy</text>
+  <line x1="30" y1="222" x2="272" y2="222" stroke="#FCA5A5" stroke-width="1"/>
+  <text x="151" y="242" class="md-sub" font-size="8">Tip: Discuss retries, circuit breakers,</text>
+  <text x="151" y="254" class="md-sub" font-size="8">replication, and fallback paths.</text>
+
+  <!-- Card 4: Bottom-right — No trade-offs discussed -->
+  <rect x="314" y="152" width="270" height="108" rx="8" class="md-c4"/>
+  <polygon points="404,168 386,202 422,202" fill="#DC2626" stroke="#991B1B" stroke-width="1.5"/>
+  <text x="404" y="195" class="md-label" fill="#fff" font-size="14" font-weight="900">!</text>
+  <text x="449" y="174" class="md-title">No Trade-offs</text>
+  <text x="449" y="188" class="md-title">Discussed</text>
+  <text x="449" y="204" class="md-sub">One-size-fits-all</text>
+  <text x="449" y="216" class="md-sub">thinking — no ↔ analysis</text>
+  <line x1="328" y1="222" x2="570" y2="222" stroke="#FCA5A5" stroke-width="1"/>
+  <text x="449" y="242" class="md-sub" font-size="8">Tip: Always compare SQL vs NoSQL,</text>
+  <text x="449" y="254" class="md-sub" font-size="8">cache vs DB, push vs pull, etc.</text>
+
+  <!-- Center gap label -->
+  <text x="300" y="145" class="md-label" font-size="8" fill="#94A3B8">▼ cards highlight in sequence ▼</text>
+</svg>
 </div>

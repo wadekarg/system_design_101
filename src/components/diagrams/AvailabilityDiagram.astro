@@ -1,5 +1,73 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @keyframes arcLeft {
+      from { stroke-dashoffset: 251; }
+      to   { stroke-dashoffset: 25; }
+    }
+    @keyframes arcRight {
+      from { stroke-dashoffset: 251; }
+      to   { stroke-dashoffset: 3; }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .arc-left  { animation: arcLeft  2s 0.3s ease-out forwards; stroke-dashoffset: 251; }
+    .arc-right { animation: arcRight 2s 0.6s ease-out forwards; stroke-dashoffset: 251; }
+    .fade1 { animation: fadeUp 0.6s 0.4s ease-out forwards; opacity: 0; }
+    .fade2 { animation: fadeUp 0.6s 0.7s ease-out forwards; opacity: 0; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <!-- Title -->
+  <text x="300" y="24" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B" text-anchor="middle">Availability: Nines Comparison</text>
+
+  <!-- === LEFT: 99.9% === -->
+  <!-- Background arc (track) -->
+  <circle cx="152" cy="148" r="80" fill="none" stroke="#F1F5F9" stroke-width="16"
+          stroke-dasharray="251 251" stroke-dashoffset="-63" transform="rotate(-180 152 148)"/>
+  <!-- Filled arc — red/amber to show downtime loss -->
+  <circle class="arc-left" cx="152" cy="148" r="80" fill="none" stroke="#4F46E5" stroke-width="16"
+          stroke-linecap="round" stroke-dasharray="251 251" transform="rotate(-180 152 148)"/>
+  <!-- Downtime wedge highlight -->
+  <circle cx="152" cy="148" r="80" fill="none" stroke="#FCA5A5" stroke-width="16"
+          stroke-dasharray="6 245" stroke-dashoffset="-245" transform="rotate(-180 152 148)"/>
+
+  <g class="fade1">
+    <text x="152" y="136" font-family="system-ui,sans-serif" font-size="28" font-weight="800" fill="#4F46E5" text-anchor="middle">99.9%</text>
+    <text x="152" y="158" font-family="system-ui,sans-serif" font-size="11" fill="#DC2626" text-anchor="middle" font-weight="600">8.7 hrs / year downtime</text>
+    <text x="152" y="176" font-family="system-ui,sans-serif" font-size="10" fill="#64748B" text-anchor="middle">Three Nines</text>
+  </g>
+
+  <text x="152" y="240" font-family="system-ui,sans-serif" font-size="10" fill="#94A3B8" text-anchor="middle">~8.7 hrs offline per year</text>
+  <text x="152" y="255" font-family="system-ui,sans-serif" font-size="10" fill="#94A3B8" text-anchor="middle">~43 min offline per month</text>
+
+  <!-- Divider -->
+  <line x1="300" y1="40" x2="300" y2="270" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <!-- === RIGHT: 99.99% === -->
+  <!-- Background arc (track) -->
+  <circle cx="448" cy="148" r="80" fill="none" stroke="#F1F5F9" stroke-width="16"
+          stroke-dasharray="251 251" stroke-dashoffset="-63" transform="rotate(-180 448 148)"/>
+  <!-- Filled arc — green for high availability -->
+  <circle class="arc-right" cx="448" cy="148" r="80" fill="none" stroke="#16A34A" stroke-width="16"
+          stroke-linecap="round" stroke-dasharray="251 251" transform="rotate(-180 448 148)"/>
+  <!-- Tiny downtime sliver -->
+  <circle cx="448" cy="148" r="80" fill="none" stroke="#FCA5A5" stroke-width="16"
+          stroke-dasharray="0.6 250.4" stroke-dashoffset="-250.4" transform="rotate(-180 448 148)"/>
+
+  <g class="fade2">
+    <text x="448" y="136" font-family="system-ui,sans-serif" font-size="28" font-weight="800" fill="#16A34A" text-anchor="middle">99.99%</text>
+    <text x="448" y="158" font-family="system-ui,sans-serif" font-size="11" fill="#16A34A" text-anchor="middle" font-weight="600">52 min / year downtime</text>
+    <text x="448" y="176" font-family="system-ui,sans-serif" font-size="10" fill="#64748B" text-anchor="middle">Four Nines</text>
+  </g>
+
+  <text x="448" y="240" font-family="system-ui,sans-serif" font-size="10" fill="#94A3B8" text-anchor="middle">~52 min offline per year</text>
+  <text x="448" y="255" font-family="system-ui,sans-serif" font-size="10" fill="#94A3B8" text-anchor="middle">~4.3 min offline per month</text>
+</svg>
 </div>

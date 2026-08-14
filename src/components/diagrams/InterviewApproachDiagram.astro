@@ -1,5 +1,172 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .ia-label { font-family: sans-serif; font-size: 10px; fill: #1E293B; text-anchor: middle; }
+    .ia-label-w { font-family: sans-serif; font-size: 10px; fill: #fff; text-anchor: middle; font-weight: 700; }
+    .ia-num { font-family: sans-serif; font-size: 16px; fill: #fff; text-anchor: middle; font-weight: 900; }
+    .ia-step { font-family: sans-serif; font-size: 11px; fill: #1E293B; text-anchor: middle; font-weight: 700; }
+    .ia-time { font-family: sans-serif; font-size: 9px; fill: #64748B; text-anchor: middle; }
+
+    /* Step highlight: each circle fills/scales in sequence */
+    @keyframes ia-s1 {
+      0%,5%    { transform: scale(1); }
+      10%,28%  { transform: scale(1.18); }
+      33%,100% { transform: scale(1); }
+    }
+    @keyframes ia-s2 {
+      0%,23%   { transform: scale(1); }
+      28%,46%  { transform: scale(1.18); }
+      51%,100% { transform: scale(1); }
+    }
+    @keyframes ia-s3 {
+      0%,41%   { transform: scale(1); }
+      46%,64%  { transform: scale(1.18); }
+      69%,100% { transform: scale(1); }
+    }
+    @keyframes ia-s4 {
+      0%,59%   { transform: scale(1); }
+      64%,82%  { transform: scale(1.18); }
+      87%,100% { transform: scale(1); }
+    }
+    @keyframes ia-s5 {
+      0%,77%   { transform: scale(1); }
+      82%,95%  { transform: scale(1.18); }
+      100%     { transform: scale(1); }
+    }
+
+    /* Glow ring for active step */
+    @keyframes ia-r1 {
+      0%,5%    { opacity: 0; }
+      10%,28%  { opacity: 1; r: 36; }
+      33%,100% { opacity: 0; }
+    }
+    @keyframes ia-r2 {
+      0%,23%   { opacity: 0; }
+      28%,46%  { opacity: 1; r: 36; }
+      51%,100% { opacity: 0; }
+    }
+    @keyframes ia-r3 {
+      0%,41%   { opacity: 0; }
+      46%,64%  { opacity: 1; r: 36; }
+      69%,100% { opacity: 0; }
+    }
+    @keyframes ia-r4 {
+      0%,59%   { opacity: 0; }
+      64%,82%  { opacity: 1; r: 36; }
+      87%,100% { opacity: 0; }
+    }
+    @keyframes ia-r5 {
+      0%,77%   { opacity: 0; }
+      82%,95%  { opacity: 1; r: 36; }
+      100%     { opacity: 0; }
+    }
+
+    .ia-g1 { animation: ia-s1 6s ease-in-out infinite; transform-origin: 72px 120px; }
+    .ia-g2 { animation: ia-s2 6s ease-in-out infinite; transform-origin: 192px 120px; }
+    .ia-g3 { animation: ia-s3 6s ease-in-out infinite; transform-origin: 312px 120px; }
+    .ia-g4 { animation: ia-s4 6s ease-in-out infinite; transform-origin: 432px 120px; }
+    .ia-g5 { animation: ia-s5 6s ease-in-out infinite; transform-origin: 552px 120px; }
+    .ia-r1 { animation: ia-r1 6s ease-in-out infinite; fill: none; stroke: #4F46E5; stroke-width: 3; opacity: 0; }
+    .ia-r2 { animation: ia-r2 6s ease-in-out infinite; fill: none; stroke: #2563EB; stroke-width: 3; opacity: 0; }
+    .ia-r3 { animation: ia-r3 6s ease-in-out infinite; fill: none; stroke: #16A34A; stroke-width: 3; opacity: 0; }
+    .ia-r4 { animation: ia-r4 6s ease-in-out infinite; fill: none; stroke: #D97706; stroke-width: 3; opacity: 0; }
+    .ia-r5 { animation: ia-r5 6s ease-in-out infinite; fill: none; stroke: #7C3AED; stroke-width: 3; opacity: 0; }
+
+    @media (prefers-reduced-motion: reduce) { * { animation-play-state: paused !important; } }
+  </style>
+
+  <defs>
+    <marker id="ia-arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <polygon points="0 0, 7 3.5, 0 7" fill="#CBD5E1"/>
+    </marker>
+  </defs>
+
+  <rect width="600" height="280" fill="#F1F5F9" rx="8"/>
+  <text x="300" y="22" class="ia-label" font-size="12" font-weight="700" fill="#1E293B">System Design Interview Approach</text>
+
+  <!-- Connecting arrows -->
+  <line x1="102" y1="120" x2="162" y2="120" stroke="#CBD5E1" stroke-width="2" marker-end="url(#ia-arr)"/>
+  <line x1="222" y1="120" x2="282" y2="120" stroke="#CBD5E1" stroke-width="2" marker-end="url(#ia-arr)"/>
+  <line x1="342" y1="120" x2="402" y2="120" stroke="#CBD5E1" stroke-width="2" marker-end="url(#ia-arr)"/>
+  <line x1="462" y1="120" x2="522" y2="120" stroke="#CBD5E1" stroke-width="2" marker-end="url(#ia-arr)"/>
+
+  <!-- Step 1: Clarify -->
+  <circle class="ia-r1" cx="72" cy="120" r="34"/>
+  <g class="ia-g1">
+    <circle cx="72" cy="120" r="30" fill="#4F46E5"/>
+    <text x="72" y="113" class="ia-num">1</text>
+    <text x="72" y="128" class="ia-label-w" font-size="9">Clarify</text>
+  </g>
+  <text x="72" y="162" class="ia-step" fill="#4F46E5">Clarify</text>
+  <text x="72" y="177" class="ia-time">Requirements</text>
+  <text x="72" y="190" class="ia-time">5 min</text>
+
+  <!-- Step 2: Estimate -->
+  <circle class="ia-r2" cx="192" cy="120" r="34"/>
+  <g class="ia-g2">
+    <circle cx="192" cy="120" r="30" fill="#2563EB"/>
+    <text x="192" y="113" class="ia-num">2</text>
+    <text x="192" y="128" class="ia-label-w" font-size="9">Estimate</text>
+  </g>
+  <text x="192" y="162" class="ia-step" fill="#2563EB">Estimate</text>
+  <text x="192" y="177" class="ia-time">Scale / QPS</text>
+  <text x="192" y="190" class="ia-time">5 min</text>
+
+  <!-- Step 3: High-Level Design -->
+  <circle class="ia-r3" cx="312" cy="120" r="34"/>
+  <g class="ia-g3">
+    <circle cx="312" cy="120" r="30" fill="#16A34A"/>
+    <text x="312" y="109" class="ia-num">3</text>
+    <text x="312" y="122" class="ia-label-w" font-size="8">High-Level</text>
+    <text x="312" y="133" class="ia-label-w" font-size="8">Design</text>
+  </g>
+  <text x="312" y="162" class="ia-step" fill="#16A34A">High-Level</text>
+  <text x="312" y="175" class="ia-time">Architecture</text>
+  <text x="312" y="188" class="ia-time">15 min</text>
+
+  <!-- Step 4: Deep Dive -->
+  <circle class="ia-r4" cx="432" cy="120" r="34"/>
+  <g class="ia-g4">
+    <circle cx="432" cy="120" r="30" fill="#D97706"/>
+    <text x="432" y="113" class="ia-num">4</text>
+    <text x="432" y="128" class="ia-label-w" font-size="9">Deep Dive</text>
+  </g>
+  <text x="432" y="162" class="ia-step" fill="#D97706">Deep Dive</text>
+  <text x="432" y="177" class="ia-time">Components</text>
+  <text x="432" y="190" class="ia-time">15 min</text>
+
+  <!-- Step 5: Trade-offs -->
+  <circle class="ia-r5" cx="552" cy="120" r="34"/>
+  <g class="ia-g5">
+    <circle cx="552" cy="120" r="30" fill="#7C3AED"/>
+    <text x="552" y="113" class="ia-num">5</text>
+    <text x="552" y="128" class="ia-label-w" font-size="9">Trade-offs</text>
+  </g>
+  <text x="552" y="162" class="ia-step" fill="#7C3AED">Trade-offs</text>
+  <text x="552" y="177" class="ia-time">Discuss ↔</text>
+  <text x="552" y="190" class="ia-time">5 min</text>
+
+  <!-- Total time bar -->
+  <rect x="30" y="210" width="540" height="20" rx="4" fill="#E2E8F0"/>
+  <!-- Segments -->
+  <rect x="30"  y="210" width="54"  height="20" rx="4" fill="#4F46E5" opacity="0.8"/>
+  <rect x="84"  y="210" width="54"  height="20" fill="#2563EB" opacity="0.8"/>
+  <rect x="138" y="210" width="162" height="20" fill="#16A34A" opacity="0.8"/>
+  <rect x="300" y="210" width="162" height="20" fill="#D97706" opacity="0.8"/>
+  <rect x="462" y="210" width="108" height="20" rx="4" fill="#7C3AED" opacity="0.8"/>
+  <text x="57"  y="224" class="ia-label" fill="#fff" font-size="8">5m</text>
+  <text x="111" y="224" class="ia-label" fill="#fff" font-size="8">5m</text>
+  <text x="219" y="224" class="ia-label" fill="#fff" font-size="8">15 min</text>
+  <text x="381" y="224" class="ia-label" fill="#fff" font-size="8">15 min</text>
+  <text x="516" y="224" class="ia-label" fill="#fff" font-size="8">5m</text>
+
+  <!-- Total label -->
+  <text x="300" y="255" class="ia-label" font-size="10" fill="#475569">Total: ~45 minutes structured approach</text>
+
+  <!-- Legend -->
+  <rect x="12" y="260" width="576" height="18" rx="4" fill="#E2E8F0"/>
+  <text x="18" y="274" class="ia-label" text-anchor="start" font-size="8" fill="#475569">Each circle highlights in sequence · Scale up = active step · Repeat endlessly to internalize the flow</text>
+</svg>
 </div>

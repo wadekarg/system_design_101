@@ -1,5 +1,102 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    /* Dot moves: Client(75,140) → LB(230,140) → Server1(450,70) → back → Server2(450,140) → back → Server3(450,210) */
+    @keyframes dotMove {
+      0%   { transform: translate(75px, 140px);  opacity: 0; }
+      3%   { opacity: 1; }
+      18%  { transform: translate(230px, 140px); opacity: 1; }
+      24%  { transform: translate(230px, 140px); opacity: 1; }
+      36%  { transform: translate(450px, 70px);  opacity: 1; }
+      42%  { transform: translate(450px, 70px);  opacity: 0.6; }
+      49%  { transform: translate(230px, 140px); opacity: 0.6; }
+
+      52%  { transform: translate(230px, 140px); opacity: 1; }
+      63%  { transform: translate(450px, 140px); opacity: 1; }
+      68%  { transform: translate(450px, 140px); opacity: 0.6; }
+      75%  { transform: translate(230px, 140px); opacity: 0.6; }
+
+      78%  { transform: translate(230px, 140px); opacity: 1; }
+      89%  { transform: translate(450px, 210px); opacity: 1; }
+      93%  { transform: translate(450px, 210px); opacity: 0.6; }
+      97%  { transform: translate(75px, 140px);  opacity: 0; }
+      100% { transform: translate(75px, 140px);  opacity: 0; }
+    }
+    .moving-dot {
+      animation: dotMove 6s ease-in-out infinite;
+      transform: translate(75px, 140px);
+    }
+    @keyframes pulseServer1 {
+      36%,42% { fill: #BBF7D0; }
+      0%,35%,43%,100% { fill: #F8FAFC; }
+    }
+    @keyframes pulseServer2 {
+      63%,68% { fill: #BBF7D0; }
+      0%,62%,69%,100% { fill: #F8FAFC; }
+    }
+    @keyframes pulseServer3 {
+      89%,93% { fill: #BBF7D0; }
+      0%,88%,94%,100% { fill: #F8FAFC; }
+    }
+    .srv1 { animation: pulseServer1 6s ease-in-out infinite; }
+    .srv2 { animation: pulseServer2 6s ease-in-out infinite; }
+    .srv3 { animation: pulseServer3 6s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#CBD5E1"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="300" y="22" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#1E293B" text-anchor="middle">Load Balancing — Round Robin</text>
+
+  <!-- Static arrows: Client → LB -->
+  <line x1="118" y1="140" x2="192" y2="140" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Static arrows: LB → Servers -->
+  <line x1="268" y1="133" x2="416" y2="78" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="268" y1="140" x2="416" y2="140" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="268" y1="147" x2="416" y2="202" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Client box -->
+  <rect x="28" y="115" width="90" height="50" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="73" y="137" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="#1E293B" text-anchor="middle">Client</text>
+  <text x="73" y="153" font-family="system-ui,sans-serif" font-size="9" fill="#64748B" text-anchor="middle">Browser</text>
+
+  <!-- Load Balancer box -->
+  <rect x="196" y="110" width="94" height="60" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="1.5"/>
+  <text x="243" y="135" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white" text-anchor="middle">Load</text>
+  <text x="243" y="150" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white" text-anchor="middle">Balancer</text>
+  <text x="243" y="164" font-family="system-ui,sans-serif" font-size="8" fill="#C7D2FE" text-anchor="middle">Round Robin</text>
+
+  <!-- Server 1 -->
+  <rect x="418" y="48" width="100" height="44" rx="8" class="srv1" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="468" y="67" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#1E293B" text-anchor="middle">Server 1</text>
+  <text x="468" y="82" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">● online</text>
+
+  <!-- Server 2 -->
+  <rect x="418" y="118" width="100" height="44" rx="8" class="srv2" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="468" y="137" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#1E293B" text-anchor="middle">Server 2</text>
+  <text x="468" y="152" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">● online</text>
+
+  <!-- Server 3 -->
+  <rect x="418" y="188" width="100" height="44" rx="8" class="srv3" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="468" y="207" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#1E293B" text-anchor="middle">Server 3</text>
+  <text x="468" y="222" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A" text-anchor="middle">● online</text>
+
+  <!-- Animated dot -->
+  <g class="moving-dot">
+    <circle cx="0" cy="0" r="7" fill="#4F46E5" opacity="0.9"/>
+    <circle cx="0" cy="0" r="3.5" fill="white"/>
+  </g>
+
+  <!-- Legend -->
+  <text x="300" y="270" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Dot shows request routing: each request cycles to next server</text>
+</svg>
 </div>

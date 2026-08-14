@@ -1,5 +1,140 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ag-arr" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="ag-arr-acc" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#4F46E5"/>
+    </marker>
+  </defs>
+  <style>
+    /* Dot travels: client→gateway→service, one client+service pair at a time */
+    /* Trip 1: Mobile→Auth, Trip 2: Web→Products, Trip 3: IoT→Orders */
+    /* Each trip ~3s, total 9s cycle */
+
+    /* Dot 1: Mobile (y=70) → Gateway (x=230) → Auth (y=60) */
+    @keyframes ag-d1-x { 0%{cx:62} 8%{cx:62} 18%{cx:228} 28%{cx:380} 33%{cx:380} 100%{cx:380} }
+    @keyframes ag-d1-y { 0%{cy:70} 8%{cy:70} 18%{cy:130} 28%{cy:60}  33%{cy:60}  100%{cy:60}  }
+    @keyframes ag-d1-o { 0%{opacity:0} 5%{opacity:1} 30%{opacity:1} 33%{opacity:0} 100%{opacity:0} }
+
+    /* Dot 2: Web (y=130) → Gateway → Products (y=100) */
+    @keyframes ag-d2-x { 0%{cx:62} 33%{cx:62} 41%{cx:62} 51%{cx:228} 61%{cx:380} 66%{cx:380} 100%{cx:380} }
+    @keyframes ag-d2-y { 0%{cy:130} 33%{cy:130} 41%{cy:130} 51%{cy:130} 61%{cy:100} 66%{cy:100} 100%{cy:100} }
+    @keyframes ag-d2-o { 0%{opacity:0} 38%{opacity:0} 42%{opacity:1} 63%{opacity:1} 66%{opacity:0} 100%{opacity:0} }
+
+    /* Dot 3: IoT (y=190) → Gateway → Orders (y=140) */
+    @keyframes ag-d3-x { 0%{cx:62} 66%{cx:62} 74%{cx:62} 84%{cx:228} 93%{cx:380} 99%{cx:380} 100%{cx:62} }
+    @keyframes ag-d3-y { 0%{cy:190} 66%{cy:190} 74%{cy:190} 84%{cy:130} 93%{cy:140} 99%{cy:140} 100%{cy:190} }
+    @keyframes ag-d3-o { 0%{opacity:0} 71%{opacity:0} 75%{opacity:1} 96%{opacity:1} 99%{opacity:0} 100%{opacity:0} }
+
+    @keyframes ag-gw-pulse {
+      0%,100% { opacity:1; }
+      50%     { opacity:0.85; }
+    }
+
+    .ag-dot1-x { animation: ag-d1-x 9s ease-in-out infinite; }
+    .ag-dot1-y { animation: ag-d1-y 9s ease-in-out infinite; }
+    .ag-dot1   { animation: ag-d1-o 9s linear infinite; }
+    .ag-dot2   { animation: ag-d2-o 9s linear infinite; }
+    .ag-dot3   { animation: ag-d3-o 9s linear infinite; }
+    .ag-gw     { animation: ag-gw-pulse 2s ease-in-out infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="24" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">API Gateway</text>
+
+  <!-- ── CLIENTS (left column) ── -->
+  <!-- Mobile -->
+  <rect x="10" y="48" width="100" height="44" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- phone icon -->
+  <rect x="26" y="56" width="14" height="22" rx="2" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <circle cx="33" cy="74" r="1.5" fill="#4F46E5"/>
+  <text x="55" y="68" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#1E293B">Mobile</text>
+  <text x="55" y="81" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">client</text>
+
+  <!-- Web -->
+  <rect x="10" y="108" width="100" height="44" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- globe icon -->
+  <circle cx="33" cy="130" r="10" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <line x1="33" y1="120" x2="33" y2="140" stroke="#4F46E5" stroke-width="1"/>
+  <ellipse cx="33" cy="130" rx="5" ry="10" fill="none" stroke="#4F46E5" stroke-width="1"/>
+  <line x1="23" y1="130" x2="43" y2="130" stroke="#4F46E5" stroke-width="1"/>
+  <text x="55" y="128" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#1E293B">Web</text>
+  <text x="55" y="141" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">browser</text>
+
+  <!-- IoT -->
+  <rect x="10" y="168" width="100" height="44" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- antenna icon -->
+  <line x1="33" y1="202" x2="33" y2="185" stroke="#4F46E5" stroke-width="1.5"/>
+  <path d="M26 192 Q33 184 40 192" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <path d="M22 196 Q33 180 44 196" fill="none" stroke="#4F46E5" stroke-width="1"/>
+  <circle cx="33" cy="202" r="2" fill="#4F46E5"/>
+  <text x="55" y="188" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#1E293B">IoT</text>
+  <text x="55" y="201" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">device</text>
+
+  <!-- Arrows clients → gateway -->
+  <line x1="110" y1="70"  x2="198" y2="108" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+  <line x1="110" y1="130" x2="198" y2="130" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+  <line x1="110" y1="190" x2="198" y2="152" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+
+  <!-- ── GATEWAY (center) ── -->
+  <g class="ag-gw">
+    <rect x="200" y="84" width="160" height="92" rx="10" fill="#4F46E5" stroke="#3730A3" stroke-width="2"/>
+    <text x="280" y="112" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white">API Gateway</text>
+    <line x1="220" y1="120" x2="340" y2="120" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+    <text x="280" y="136" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#C7D2FE">• Auth</text>
+    <text x="280" y="150" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#C7D2FE">• Rate Limit</text>
+    <text x="280" y="164" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#C7D2FE">• Routing</text>
+  </g>
+
+  <!-- Arrows gateway → services -->
+  <line x1="360" y1="110" x2="388" y2="60"  stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+  <line x1="360" y1="120" x2="388" y2="100" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+  <line x1="360" y1="140" x2="388" y2="140" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+  <line x1="360" y1="150" x2="388" y2="180" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#ag-arr)"/>
+
+  <!-- ── SERVICES (right column) ── -->
+  <rect x="390" y="40"  width="100" height="36" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="440" y="62"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Auth</text>
+
+  <rect x="390" y="82"  width="100" height="36" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="440" y="104" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Products</text>
+
+  <rect x="390" y="122" width="100" height="36" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="440" y="144" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Orders</text>
+
+  <rect x="390" y="162" width="100" height="36" rx="6" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <text x="440" y="184" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="600" fill="#1E293B">Payments</text>
+
+  <!-- Animated dots -->
+  <!-- Dot 1 (Mobile→Auth) -->
+  <circle r="5" fill="#4F46E5" class="ag-dot1">
+    <animate attributeName="cx" values="62;62;228;380;380" keyTimes="0;0.08;0.18;0.28;1" dur="9s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="70;70;130;60;60"   keyTimes="0;0.08;0.18;0.28;1" dur="9s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Dot 2 (Web→Products) -->
+  <circle r="5" fill="#16A34A" class="ag-dot2">
+    <animate attributeName="cx" values="62;62;62;228;380;380;380" keyTimes="0;0.33;0.41;0.51;0.61;0.66;1" dur="9s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="130;130;130;130;100;100;100" keyTimes="0;0.33;0.41;0.51;0.61;0.66;1" dur="9s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Dot 3 (IoT→Orders) -->
+  <circle r="5" fill="#D97706" class="ag-dot3">
+    <animate attributeName="cx" values="62;62;62;228;380;380;62"   keyTimes="0;0.66;0.74;0.84;0.93;0.99;1" dur="9s" repeatCount="indefinite"/>
+    <animate attributeName="cy" values="190;190;190;130;140;140;190" keyTimes="0;0.66;0.74;0.84;0.93;0.99;1" dur="9s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Footer -->
+  <rect x="10" y="222" width="580" height="46" rx="6" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="300" y="240" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#64748B">SINGLE ENTRY POINT</text>
+  <text x="300" y="256" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#475569">All clients hit one gateway. It authenticates, rate-limits, then routes to the right microservice.</text>
+</svg>
 </div>

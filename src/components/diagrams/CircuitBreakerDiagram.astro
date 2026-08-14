@@ -1,5 +1,159 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="cb-arr-gray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#CBD5E1"/>
+    </marker>
+    <marker id="cb-arr-red" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#DC2626"/>
+    </marker>
+    <marker id="cb-arr-amb" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#D97706"/>
+    </marker>
+    <marker id="cb-arr-grn" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L7,3 z" fill="#16A34A"/>
+    </marker>
+  </defs>
+  <style>
+    /* 9s cycle: CLOSED 0-3s, OPEN 3-6s, HALF-OPEN 6-9s */
+    @keyframes cb-pulse-closed {
+      0%   { opacity:1; transform:scale(1); }
+      5%   { opacity:1; transform:scale(1.06); }
+      10%  { opacity:1; transform:scale(1); }
+      30%  { opacity:1; transform:scale(1); }
+      33.3%{ opacity:0.38; transform:scale(1); }
+      66.6%{ opacity:0.38; transform:scale(1); }
+      99%  { opacity:0.38; transform:scale(1); }
+      100% { opacity:1; transform:scale(1); }
+    }
+    @keyframes cb-pulse-open {
+      0%   { opacity:0.38; transform:scale(1); }
+      33%  { opacity:0.38; transform:scale(1); }
+      33.3%{ opacity:1; transform:scale(1); }
+      38%  { opacity:1; transform:scale(1.06); }
+      43%  { opacity:1; transform:scale(1); }
+      63%  { opacity:1; transform:scale(1); }
+      66.6%{ opacity:0.38; transform:scale(1); }
+      100% { opacity:0.38; transform:scale(1); }
+    }
+    @keyframes cb-pulse-half {
+      0%   { opacity:0.38; transform:scale(1); }
+      66%  { opacity:0.38; transform:scale(1); }
+      66.6%{ opacity:1; transform:scale(1); }
+      71%  { opacity:1; transform:scale(1.06); }
+      76%  { opacity:1; transform:scale(1); }
+      96%  { opacity:1; transform:scale(1); }
+      99.9%{ opacity:0.38; transform:scale(1); }
+      100% { opacity:0.38; transform:scale(1); }
+    }
+
+    @keyframes cb-dot-closed {
+      0%,32%  { r:6; opacity:1; }
+      33.3%   { r:4; opacity:0.3; }
+      99%     { r:4; opacity:0.3; }
+      100%    { r:6; opacity:1; }
+    }
+    @keyframes cb-dot-open {
+      0%,32%  { r:4; opacity:0.3; }
+      33.3%   { r:6; opacity:1; }
+      65%     { r:6; opacity:1; }
+      66.6%   { r:4; opacity:0.3; }
+      100%    { r:4; opacity:0.3; }
+    }
+    @keyframes cb-dot-half {
+      0%,65%  { r:4; opacity:0.3; }
+      66.6%   { r:6; opacity:1; }
+      99%     { r:6; opacity:1; }
+      100%    { r:4; opacity:0.3; }
+    }
+
+    /* Arrow animations timed to transitions */
+    @keyframes cb-arr-c2o {
+      0%    { stroke-dashoffset:200; opacity:0; }
+      25%   { stroke-dashoffset:200; opacity:0; }
+      30%   { opacity:1; }
+      33%   { stroke-dashoffset:0; opacity:1; }
+      36%   { opacity:0; }
+      100%  { opacity:0; stroke-dashoffset:0; }
+    }
+    @keyframes cb-arr-o2h {
+      0%,58%  { stroke-dashoffset:200; opacity:0; }
+      63%     { opacity:1; }
+      66%     { stroke-dashoffset:0; opacity:1; }
+      69%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+    @keyframes cb-arr-h2c {
+      0%,91%  { stroke-dashoffset:600; opacity:0; }
+      96%     { opacity:1; }
+      99%     { stroke-dashoffset:0; opacity:1; }
+      100%    { opacity:0; }
+    }
+
+    .cb-g-closed { animation: cb-pulse-closed 9s ease-in-out infinite; transform-origin: 90px 130px; }
+    .cb-g-open   { animation: cb-pulse-open   9s ease-in-out infinite; transform-origin: 300px 130px; }
+    .cb-g-half   { animation: cb-pulse-half   9s ease-in-out infinite; transform-origin: 510px 130px; }
+    .cb-dot-c    { animation: cb-dot-closed 9s infinite; }
+    .cb-dot-o    { animation: cb-dot-open   9s infinite; }
+    .cb-dot-h    { animation: cb-dot-half   9s infinite; }
+    .cb-arr-c2o  { stroke-dasharray:200; animation: cb-arr-c2o 9s linear infinite; }
+    .cb-arr-o2h  { stroke-dasharray:200; animation: cb-arr-o2h 9s linear infinite; }
+    .cb-arr-h2c  { stroke-dasharray:600; animation: cb-arr-h2c 9s linear infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="26" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">Circuit Breaker — State Machine</text>
+
+  <!-- CLOSED box -->
+  <g class="cb-g-closed">
+    <rect x="20" y="88" width="140" height="84" rx="8" fill="#F0FDF4" stroke="#16A34A" stroke-width="2.5"/>
+    <text x="90" y="115" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#16A34A">CLOSED</text>
+    <circle class="cb-dot-c" cx="73" cy="138" r="6" fill="#16A34A"/>
+    <text x="90" y="159" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#16A34A">Requests flow</text>
+  </g>
+
+  <!-- OPEN box -->
+  <g class="cb-g-open">
+    <rect x="230" y="88" width="140" height="84" rx="8" fill="#FEF2F2" stroke="#DC2626" stroke-width="2.5"/>
+    <text x="300" y="115" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="#DC2626">OPEN</text>
+    <circle class="cb-dot-o" cx="283" cy="138" r="6" fill="#DC2626"/>
+    <text x="300" y="159" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#DC2626">Blocked</text>
+  </g>
+
+  <!-- HALF-OPEN box -->
+  <g class="cb-g-half">
+    <rect x="440" y="88" width="140" height="84" rx="8" fill="#FFFBEB" stroke="#D97706" stroke-width="2.5"/>
+    <text x="510" y="111" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="#D97706">HALF-OPEN</text>
+    <circle class="cb-dot-h" cx="492" cy="138" r="6" fill="#D97706"/>
+    <text x="510" y="159" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#D97706">Probing</text>
+  </g>
+
+  <!-- Static base arrows -->
+  <line x1="160" y1="126" x2="228" y2="126" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#cb-arr-gray)"/>
+  <line x1="370" y1="126" x2="438" y2="126" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#cb-arr-gray)"/>
+  <path d="M442 172 Q300 238 158 172" fill="none" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#cb-arr-gray)"/>
+  <path d="M444 94 Q465 54 374 94" fill="none" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#cb-arr-gray)"/>
+
+  <!-- Animated arrows -->
+  <line x1="160" y1="122" x2="228" y2="122" stroke="#DC2626" stroke-width="2.5" class="cb-arr-c2o" marker-end="url(#cb-arr-red)"/>
+  <line x1="370" y1="122" x2="438" y2="122" stroke="#D97706" stroke-width="2.5" class="cb-arr-o2h" marker-end="url(#cb-arr-amb)"/>
+  <path d="M442 170 Q300 236 158 170" fill="none" stroke="#16A34A" stroke-width="2.5" class="cb-arr-h2c" marker-end="url(#cb-arr-grn)"/>
+
+  <!-- Arrow labels -->
+  <text x="194" y="114" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#DC2626">errors &gt; threshold</text>
+  <text x="404" y="114" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#D97706">timeout</text>
+  <text x="300" y="252" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#16A34A">success</text>
+  <text x="432" y="68" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#94A3B8">fail</text>
+
+  <!-- Footer -->
+  <rect x="20" y="214" width="560" height="48" rx="6" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="300" y="232" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#64748B">HOW IT WORKS</text>
+  <text x="300" y="248" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#475569">Too many errors trip the breaker OPEN. After a timeout it probes with HALF-OPEN. Success resets it CLOSED.</text>
+</svg>
 </div>

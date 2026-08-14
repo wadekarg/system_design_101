@@ -1,5 +1,193 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    /* Row highlight sweeps down users table rows (3 rows) */
+    @keyframes sweepUsers1 {
+      0%,5%   { opacity: 0; transform: translateY(0px); }
+      10%,20% { opacity: 0.7; transform: translateY(0px); }
+      25%     { opacity: 0; transform: translateY(0px); }
+      100%    { opacity: 0; transform: translateY(0px); }
+    }
+    @keyframes sweepUsers2 {
+      0%,20%  { opacity: 0; transform: translateY(0px); }
+      25%,35% { opacity: 0.7; transform: translateY(0px); }
+      40%     { opacity: 0; transform: translateY(0px); }
+      100%    { opacity: 0; transform: translateY(0px); }
+    }
+    @keyframes sweepUsers3 {
+      0%,36%  { opacity: 0; transform: translateY(0px); }
+      41%,51% { opacity: 0.7; transform: translateY(0px); }
+      55%     { opacity: 0; transform: translateY(0px); }
+      100%    { opacity: 0; transform: translateY(0px); }
+    }
+    /* Then orders table rows */
+    @keyframes sweepOrders1 {
+      0%,52%  { opacity: 0; }
+      57%,67% { opacity: 0.7; }
+      72%     { opacity: 0; }
+      100%    { opacity: 0; }
+    }
+    @keyframes sweepOrders2 {
+      0%,68%  { opacity: 0; }
+      73%,80% { opacity: 0.7; }
+      84%     { opacity: 0; }
+      100%    { opacity: 0; }
+    }
+    /* Result rows appear */
+    @keyframes showResult1 {
+      0%,80%  { opacity: 0; }
+      85%,95% { opacity: 1; }
+      100%    { opacity: 0; }
+    }
+    @keyframes showResult2 {
+      0%,84%  { opacity: 0; }
+      89%,95% { opacity: 1; }
+      100%    { opacity: 0; }
+    }
+    @keyframes showJoinArrow {
+      0%,50%  { opacity: 0.2; }
+      60%,90% { opacity: 1; }
+      100%    { opacity: 0.2; }
+    }
+    .ru1 { animation: sweepUsers1  7s ease-in-out infinite; }
+    .ru2 { animation: sweepUsers2  7s ease-in-out infinite; }
+    .ru3 { animation: sweepUsers3  7s ease-in-out infinite; }
+    .ro1 { animation: sweepOrders1 7s ease-in-out infinite; }
+    .ro2 { animation: sweepOrders2 7s ease-in-out infinite; }
+    .rr1 { animation: showResult1  7s ease-in-out infinite; opacity: 0; }
+    .rr2 { animation: showResult2  7s ease-in-out infinite; opacity: 0; }
+    .ja  { animation: showJoinArrow 7s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+  <defs>
+    <marker id="jArrow" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="#4F46E5"/>
+    </marker>
+  </defs>
+
+  <!-- SQL query label at top -->
+  <rect x="10" y="8" width="580" height="20" rx="4" fill="#EDE9FE"/>
+  <text x="300" y="21" font-family="monospace,system-ui" font-size="9.5" fill="#4F46E5" text-anchor="middle">SELECT * FROM users JOIN orders ON users.id = orders.user_id</text>
+
+  <!-- ===== USERS TABLE ===== -->
+  <text x="14" y="46" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#1E293B">users</text>
+  <!-- Header -->
+  <rect x="10" y="50" width="190" height="22" rx="0" fill="#4F46E5"/>
+  <text x="40"  y="65" font-family="monospace" font-size="9" fill="white" text-anchor="middle">id</text>
+  <text x="100" y="65" font-family="monospace" font-size="9" fill="white" text-anchor="middle">name</text>
+  <text x="170" y="65" font-family="monospace" font-size="9" fill="white" text-anchor="middle">email</text>
+  <!-- Row borders -->
+  <line x1="10" y1="50" x2="200" y2="50" stroke="#C7D2FE" stroke-width="0.5"/>
+  <line x1="10" y1="72" x2="200" y2="72" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="10" y1="94" x2="200" y2="94" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="10" y1="116" x2="200" y2="116" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="10" y1="138" x2="200" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <!-- Col borders -->
+  <line x1="10"  y1="50" x2="10"  y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="65"  y1="50" x2="65"  y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="135" y1="50" x2="135" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="200" y1="50" x2="200" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <!-- Row 1 -->
+  <text x="37"  y="86" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">1</text>
+  <text x="100" y="86" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">Alice</text>
+  <text x="167" y="86" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">alice@x</text>
+  <!-- Row 2 -->
+  <text x="37"  y="108" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">2</text>
+  <text x="100" y="108" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">Bob</text>
+  <text x="167" y="108" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">bob@x</text>
+  <!-- Row 3 -->
+  <text x="37"  y="130" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">3</text>
+  <text x="100" y="130" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">Carol</text>
+  <text x="167" y="130" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">carol@x</text>
+
+  <!-- Animated row highlights (users) -->
+  <rect class="ru1" x="11" y="73" width="188" height="21" rx="0" fill="#FEF08A"/>
+  <rect class="ru2" x="11" y="95" width="188" height="21" rx="0" fill="#FEF08A"/>
+  <rect class="ru3" x="11" y="117" width="188" height="21" rx="0" fill="#FEF08A"/>
+
+  <!-- ===== ORDERS TABLE ===== -->
+  <text x="214" y="46" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#1E293B">orders</text>
+  <!-- Header -->
+  <rect x="210" y="50" width="180" height="22" rx="0" fill="#0369A1"/>
+  <text x="235"  y="65" font-family="monospace" font-size="9" fill="white" text-anchor="middle">id</text>
+  <text x="275"  y="65" font-family="monospace" font-size="9" fill="white" text-anchor="middle">user_id</text>
+  <text x="355" y="65" font-family="monospace" font-size="9" fill="white" text-anchor="middle">total</text>
+  <!-- Row borders -->
+  <line x1="210" y1="50" x2="390" y2="50" stroke="#BAE6FD" stroke-width="0.5"/>
+  <line x1="210" y1="72" x2="390" y2="72" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="210" y1="94" x2="390" y2="94" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="210" y1="116" x2="390" y2="116" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="210" y1="138" x2="390" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <!-- Col borders -->
+  <line x1="210" y1="50" x2="210" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="255" y1="50" x2="255" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="305" y1="50" x2="305" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="390" y1="50" x2="390" y2="138" stroke="#E2E8F0" stroke-width="0.5"/>
+  <!-- Row 1 -->
+  <text x="232"  y="86" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">101</text>
+  <text x="280"  y="86" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">1</text>
+  <text x="347" y="86" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">$49.99</text>
+  <!-- Row 2 -->
+  <text x="232"  y="108" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">102</text>
+  <text x="280"  y="108" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">2</text>
+  <text x="347" y="108" font-family="monospace" font-size="9" fill="#334155" text-anchor="middle">$29.00</text>
+  <!-- Row 3 (no order for Carol) -->
+  <text x="255" y="130" font-family="monospace" font-size="9" fill="#94A3B8" text-anchor="middle">—</text>
+
+  <!-- Animated row highlights (orders) -->
+  <rect class="ro1" x="211" y="73" width="178" height="21" rx="0" fill="#FEF08A"/>
+  <rect class="ro2" x="211" y="95" width="178" height="21" rx="0" fill="#FEF08A"/>
+
+  <!-- JOIN arrow -->
+  <g class="ja">
+    <line x1="300" y1="145" x2="300" y2="162" stroke="#4F46E5" stroke-width="2" marker-end="url(#jArrow)"/>
+    <rect x="248" y="146" width="104" height="16" rx="4" fill="#EDE9FE"/>
+    <text x="300" y="157" font-family="system-ui,sans-serif" font-size="9" font-weight="600" fill="#4F46E5" text-anchor="middle">JOIN on id = user_id</text>
+  </g>
+
+  <!-- ===== RESULT TABLE ===== -->
+  <text x="105" y="184" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#16A34A" text-anchor="middle">Result</text>
+  <!-- Header -->
+  <rect x="30" y="188" width="540" height="22" rx="0" fill="#16A34A"/>
+  <text x="100"  y="203" font-family="monospace" font-size="9" fill="white" text-anchor="middle">user.id</text>
+  <text x="200"  y="203" font-family="monospace" font-size="9" fill="white" text-anchor="middle">name</text>
+  <text x="310" y="203" font-family="monospace" font-size="9" fill="white" text-anchor="middle">email</text>
+  <text x="430" y="203" font-family="monospace" font-size="9" fill="white" text-anchor="middle">order.id</text>
+  <text x="530" y="203" font-family="monospace" font-size="9" fill="white" text-anchor="middle">total</text>
+  <!-- Row borders -->
+  <line x1="30"  y1="210" x2="570" y2="210" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="30"  y1="232" x2="570" y2="232" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="30"  y1="254" x2="570" y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+  <!-- Col borders -->
+  <line x1="30"  y1="188" x2="30"  y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="155" y1="188" x2="155" y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="255" y1="188" x2="255" y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="375" y1="188" x2="375" y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="490" y1="188" x2="490" y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+  <line x1="570" y1="188" x2="570" y2="254" stroke="#E2E8F0" stroke-width="0.5"/>
+
+  <!-- Result rows (appear animated) -->
+  <g class="rr1">
+    <rect x="31" y="211" width="538" height="21" fill="#DCFCE7" opacity="0.6"/>
+    <text x="100"  y="225" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">1</text>
+    <text x="200"  y="225" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">Alice</text>
+    <text x="310" y="225" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">alice@x</text>
+    <text x="430" y="225" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">101</text>
+    <text x="530" y="225" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">$49.99</text>
+  </g>
+  <g class="rr2">
+    <rect x="31" y="233" width="538" height="21" fill="#DCFCE7" opacity="0.6"/>
+    <text x="100"  y="247" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">2</text>
+    <text x="200"  y="247" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">Bob</text>
+    <text x="310" y="247" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">bob@x</text>
+    <text x="430" y="247" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">102</text>
+    <text x="530" y="247" font-family="monospace" font-size="9" fill="#15803D" text-anchor="middle">$29.00</text>
+  </g>
+
+  <text x="300" y="272" font-family="system-ui,sans-serif" font-size="9" fill="#94A3B8" text-anchor="middle">Row sweep animates the JOIN: users rows scanned → orders matched → result built</text>
+</svg>
 </div>

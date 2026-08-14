@@ -1,5 +1,149 @@
 ---
 ---
-<div class="flex items-center justify-center h-48 text-text-secondary text-sm italic">
-  Diagram loading...
+<div class="w-full overflow-hidden">
+<svg viewBox="0 0 600 280" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="tw-arr" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="tw-arr-acc" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#4F46E5"/>
+    </marker>
+    <marker id="tw-arr-grn" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#16A34A"/>
+    </marker>
+    <marker id="tw-arr-dash" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#D97706"/>
+    </marker>
+  </defs>
+  <style>
+    /* 8s cycle: write fanout (0-5s), then read path highlight (5-8s) */
+
+    /* Write path: User→Fanout (0-1.5s) */
+    @keyframes tw-write-u2f {
+      0%   { stroke-dashoffset:150; opacity:0; }
+      5%   { opacity:1; }
+      20%  { stroke-dashoffset:0; opacity:1; }
+      25%  { opacity:0; }
+      100% { opacity:0; stroke-dashoffset:0; }
+    }
+    /* Fanout→Follower A (1.5-3s) */
+    @keyframes tw-fanout-a {
+      0%,20%  { stroke-dashoffset:150; opacity:0; }
+      25%     { opacity:1; }
+      40%     { stroke-dashoffset:0; opacity:1; }
+      45%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+    /* Fanout→Follower B */
+    @keyframes tw-fanout-b {
+      0%,20%  { stroke-dashoffset:150; opacity:0; }
+      27%     { opacity:1; }
+      42%     { stroke-dashoffset:0; opacity:1; }
+      47%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+    /* Fanout→Follower C */
+    @keyframes tw-fanout-c {
+      0%,20%  { stroke-dashoffset:150; opacity:0; }
+      29%     { opacity:1; }
+      44%     { stroke-dashoffset:0; opacity:1; }
+      49%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+
+    /* Read path: reader→Redis A (fast, green) */
+    @keyframes tw-read {
+      0%,62%  { stroke-dashoffset:200; opacity:0; }
+      67%     { opacity:1; }
+      82%     { stroke-dashoffset:0; opacity:1; }
+      87%     { opacity:0; }
+      100%    { opacity:0; }
+    }
+
+    /* Fanout service pulse */
+    @keyframes tw-fanout-pulse {
+      0%,100%  { opacity:1; }
+      22%      { opacity:0.75; transform:scale(1.04); }
+      45%      { opacity:1; transform:scale(1); }
+    }
+
+    .tw-w2f  { stroke-dasharray:150; animation: tw-write-u2f 8s linear infinite; }
+    .tw-fa   { stroke-dasharray:150; animation: tw-fanout-a 8s linear infinite; }
+    .tw-fb   { stroke-dasharray:150; animation: tw-fanout-b 8s linear infinite; }
+    .tw-fc   { stroke-dasharray:150; animation: tw-fanout-c 8s linear infinite; }
+    .tw-rd   { stroke-dasharray:200; animation: tw-read 8s linear infinite; }
+    .tw-fs   { animation: tw-fanout-pulse 8s ease-in-out infinite; transform-origin: 280px 136px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-play-state: paused !important; }
+    }
+  </style>
+
+  <rect width="600" height="280" fill="#F8FAFC" rx="12"/>
+  <text x="300" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="#1E293B">Twitter — Fan-out on Write</text>
+
+  <!-- ── User (posts tweet) ── -->
+  <rect x="12" y="110" width="88" height="52" rx="7" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5"/>
+  <!-- user icon -->
+  <circle cx="34" cy="124" r="7" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <path d="M22 143 Q22 132 34 132 Q46 132 46 143" fill="none" stroke="#4F46E5" stroke-width="1.5"/>
+  <text x="60" y="124" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#1E293B">User</text>
+  <text x="60" y="138" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">posts tweet</text>
+
+  <!-- Write arrow: User→Fanout -->
+  <line x1="100" y1="136" x2="196" y2="136" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#tw-arr)"/>
+  <text x="148" y="128" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">write</text>
+
+  <!-- Animated write dot: User→Fanout -->
+  <line x1="100" y1="132" x2="196" y2="132" stroke="#4F46E5" stroke-width="2.5" class="tw-w2f" marker-end="url(#tw-arr-acc)"/>
+
+  <!-- ── Fanout Service ── -->
+  <g class="tw-fs">
+    <rect x="198" y="106" width="110" height="60" rx="8" fill="#4F46E5" stroke="#3730A3" stroke-width="2"/>
+    <text x="253" y="130" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="white">Fanout</text>
+    <text x="253" y="145" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" fill="#C7D2FE">Service</text>
+    <text x="253" y="158" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#A5B4FC">fan-out on write</text>
+  </g>
+
+  <!-- Arrows: Fanout→Redis timelines (static) -->
+  <line x1="308" y1="120" x2="386" y2="72"  stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#tw-arr)"/>
+  <line x1="308" y1="136" x2="386" y2="136" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#tw-arr)"/>
+  <line x1="308" y1="152" x2="386" y2="200" stroke="#CBD5E1" stroke-width="1.5" marker-end="url(#tw-arr)"/>
+
+  <!-- Animated fanout dots: Fanout→Followers -->
+  <line x1="308" y1="118" x2="386" y2="70"  stroke="#16A34A" stroke-width="2.5" class="tw-fa" marker-end="url(#tw-arr-grn)"/>
+  <line x1="308" y1="134" x2="386" y2="134" stroke="#16A34A" stroke-width="2.5" class="tw-fb" marker-end="url(#tw-arr-grn)"/>
+  <line x1="308" y1="150" x2="386" y2="198" stroke="#16A34A" stroke-width="2.5" class="tw-fc" marker-end="url(#tw-arr-grn)"/>
+
+  <!-- ── Redis Timeline boxes ── -->
+  <rect x="388" y="46"  width="116" height="50" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="446" y="68"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#16A34A">Redis Timeline</text>
+  <text x="446" y="82"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">Follower A cache</text>
+
+  <rect x="388" y="110" width="116" height="50" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="446" y="132" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#16A34A">Redis Timeline</text>
+  <text x="446" y="146" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">Follower B cache</text>
+
+  <rect x="388" y="174" width="116" height="50" rx="7" fill="#F0FDF4" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="446" y="196" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9.5" font-weight="700" fill="#16A34A">Redis Timeline</text>
+  <text x="446" y="210" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#64748B">Follower C cache</text>
+
+  <!-- ── Celebrity (fan-out on read, dashed) ── -->
+  <rect x="506" y="52" width="84" height="42" rx="7" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="548" y="70"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="#D97706">Celebrity</text>
+  <text x="548" y="84"  text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#D97706">30M followers</text>
+  <text x="548" y="108" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#D97706">fan-out on read</text>
+
+  <!-- Read path arrow (User reads → Redis B directly) -->
+  <path d="M60 162 Q60 234 390 234 Q446 234 446 224" fill="none" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#tw-arr-grn)"/>
+  <text x="230" y="248" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#16A34A">read → Redis directly (O(1) timeline fetch)</text>
+
+  <!-- Animated read path -->
+  <path d="M60 162 Q60 234 390 234 Q446 234 446 224" fill="none" stroke="#16A34A" stroke-width="2.5" stroke-dasharray="200" class="tw-rd" marker-end="url(#tw-arr-grn)"/>
+
+  <!-- Footer -->
+  <rect x="10" y="254" width="580" height="20" rx="4" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="300" y="267" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8.5" fill="#475569">Normal users: push tweets to follower timelines at write time. Celebrities (millions of followers): pull on read to avoid write amplification.</text>
+</svg>
 </div>
