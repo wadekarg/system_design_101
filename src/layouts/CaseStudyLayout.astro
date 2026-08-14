@@ -1,0 +1,75 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import DifficultyBadge from '../components/DifficultyBadge.astro';
+import KeyTakeaways from '../components/KeyTakeaways.astro';
+import RelatedTopics from '../components/RelatedTopics.astro';
+import TopicNav from '../components/TopicNav.astro';
+import DiagramRenderer from '../components/DiagramRenderer.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
+  readTime: string;
+  diagram: string;
+  relatedTopics: string[];
+  takeaways: string[];
+  interviewTips: string[];
+  problemStatement: string;
+  prevTopic?: { title: string; href: string };
+  nextTopic?: { title: string; href: string };
+}
+
+const {
+  title, description, difficulty, readTime, diagram,
+  relatedTopics, takeaways, interviewTips, problemStatement,
+  prevTopic, nextTopic,
+} = Astro.props;
+---
+
+<BaseLayout title={title} description={description}>
+  <article class="max-w-content mx-auto px-6 py-10" data-topic-page>
+    <header class="mb-8">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-xs font-semibold uppercase tracking-wider text-accent bg-accent-light px-2 py-1 rounded">Case Study</span>
+        <DifficultyBadge difficulty={difficulty} />
+        <span class="text-sm text-text-secondary">{readTime}</span>
+      </div>
+      <h1 class="text-3xl font-bold text-text-primary mb-3">{title}</h1>
+      <p class="text-lg text-text-secondary">{description}</p>
+    </header>
+
+    <!-- Problem Statement -->
+    <div class="mb-8 rounded-2xl bg-amber-50 border border-amber-200 p-6">
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-amber-700 mb-2">Interview Prompt</h2>
+      <p class="text-text-primary italic">"{problemStatement}"</p>
+    </div>
+
+    <!-- Architecture Diagram -->
+    <div class="mb-10 rounded-2xl bg-white border border-border p-6 shadow-sm">
+      <DiagramRenderer name={diagram} />
+    </div>
+
+    <!-- Step-by-step content -->
+    <div class="topic-prose">
+      <slot />
+    </div>
+
+    <!-- Interview Tips callout -->
+    <div class="mt-10 rounded-2xl bg-accent-light border border-accent/20 p-6">
+      <h2 class="text-base font-semibold text-accent mb-3">Say This In Your Interview</h2>
+      <ul class="space-y-2">
+        {interviewTips.map((tip) => (
+          <li class="flex items-start gap-2 text-sm text-text-primary">
+            <span class="text-accent mt-0.5">→</span>
+            <span>{tip}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+
+    <KeyTakeaways items={takeaways} />
+    {relatedTopics.length > 0 && <RelatedTopics topics={relatedTopics} />}
+    <TopicNav prev={prevTopic} next={nextTopic} />
+  </article>
+</BaseLayout>
