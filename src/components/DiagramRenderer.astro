@@ -1,8 +1,90 @@
 ---
-// Stub: full implementation in Task 5
+import ComputerArchitectureDiagram from './diagrams/ComputerArchitectureDiagram.astro';
+import NetworkingDiagram from './diagrams/NetworkingDiagram.astro';
+import HttpDiagram from './diagrams/HttpDiagram.astro';
+import ApisDiagram from './diagrams/ApisDiagram.astro';
+import LatencyDiagram from './diagrams/LatencyDiagram.astro';
+import AvailabilityDiagram from './diagrams/AvailabilityDiagram.astro';
+import LoadBalancingDiagram from './diagrams/LoadBalancingDiagram.astro';
+import CachingDiagram from './diagrams/CachingDiagram.astro';
+import CdnDiagram from './diagrams/CdnDiagram.astro';
+import SqlDiagram from './diagrams/SqlDiagram.astro';
+import NoSqlDiagram from './diagrams/NoSqlDiagram.astro';
+import ReplicationDiagram from './diagrams/ReplicationDiagram.astro';
+import ShardingDiagram from './diagrams/ShardingDiagram.astro';
+import MessageQueuesDiagram from './diagrams/MessageQueuesDiagram.astro';
+import ObjectStorageDiagram from './diagrams/ObjectStorageDiagram.astro';
+import WebsocketsDiagram from './diagrams/WebsocketsDiagram.astro';
+import RateLimitingDiagram from './diagrams/RateLimitingDiagram.astro';
+import ConsistentHashingDiagram from './diagrams/ConsistentHashingDiagram.astro';
+import BloomFilterDiagram from './diagrams/BloomFilterDiagram.astro';
+import LeaderElectionDiagram from './diagrams/LeaderElectionDiagram.astro';
+import CircuitBreakerDiagram from './diagrams/CircuitBreakerDiagram.astro';
+import ApiGatewayDiagram from './diagrams/ApiGatewayDiagram.astro';
+import EventDrivenDiagram from './diagrams/EventDrivenDiagram.astro';
+import DistributedTransactionsDiagram from './diagrams/DistributedTransactionsDiagram.astro';
+import TinyUrlDiagram from './diagrams/TinyUrlDiagram.astro';
+import TwitterDiagram from './diagrams/TwitterDiagram.astro';
+import YoutubeDiagram from './diagrams/YoutubeDiagram.astro';
+import DiscordDiagram from './diagrams/DiscordDiagram.astro';
+import GoogleDriveDiagram from './diagrams/GoogleDriveDiagram.astro';
+import WebCrawlerDiagram from './diagrams/WebCrawlerDiagram.astro';
+import NotificationDiagram from './diagrams/NotificationDiagram.astro';
+import AutocompleteDiagram from './diagrams/AutocompleteDiagram.astro';
+import UberDiagram from './diagrams/UberDiagram.astro';
+import TicketBookingDiagram from './diagrams/TicketBookingDiagram.astro';
+import InterviewApproachDiagram from './diagrams/InterviewApproachDiagram.astro';
+import CapacityDiagram from './diagrams/CapacityDiagram.astro';
+import TradeOffsDiagram from './diagrams/TradeOffsDiagram.astro';
+import MistakesDiagram from './diagrams/MistakesDiagram.astro';
+
 interface Props {
   name: string;
 }
 const { name } = Astro.props;
+
+const map: Record<string, any> = {
+  ComputerArchitectureDiagram,
+  NetworkingDiagram,
+  HttpDiagram,
+  ApisDiagram,
+  LatencyDiagram,
+  AvailabilityDiagram,
+  LoadBalancingDiagram,
+  CachingDiagram,
+  CdnDiagram,
+  SqlDiagram,
+  NoSqlDiagram,
+  ReplicationDiagram,
+  ShardingDiagram,
+  MessageQueuesDiagram,
+  ObjectStorageDiagram,
+  WebsocketsDiagram,
+  RateLimitingDiagram,
+  ConsistentHashingDiagram,
+  BloomFilterDiagram,
+  LeaderElectionDiagram,
+  CircuitBreakerDiagram,
+  ApiGatewayDiagram,
+  EventDrivenDiagram,
+  DistributedTransactionsDiagram,
+  TinyUrlDiagram,
+  TwitterDiagram,
+  YoutubeDiagram,
+  DiscordDiagram,
+  GoogleDriveDiagram,
+  WebCrawlerDiagram,
+  NotificationDiagram,
+  AutocompleteDiagram,
+  UberDiagram,
+  TicketBookingDiagram,
+  InterviewApproachDiagram,
+  CapacityDiagram,
+  TradeOffsDiagram,
+  MistakesDiagram,
+};
+
+const Component = map[name];
 ---
-<div data-diagram-renderer-stub>{name}</div>
+
+{Component ? <Component /> : <div class="text-text-secondary text-sm italic">Diagram: {name}</div>}

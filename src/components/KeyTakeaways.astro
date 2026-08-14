@@ -1,8 +1,17 @@
 ---
-// Stub: full implementation in Task 5
 interface Props {
   items: string[];
 }
 const { items } = Astro.props;
 ---
-<div data-key-takeaways-stub></div>
+<div class="mt-10 rounded-2xl bg-success-light border border-green-200 p-6">
+  <h2 class="text-base font-semibold text-green-800 mb-3">Key Takeaways</h2>
+  <ul class="space-y-2">
+    {items.map((item) => (
+      <li class="flex items-start gap-2 text-sm text-text-primary">
+        <span class="text-success mt-0.5 font-bold">✓</span>
+        <span>{item}</span>
+      </li>
+    ))}
+  </ul>
+</div>

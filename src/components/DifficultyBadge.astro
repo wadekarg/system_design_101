@@ -1,8 +1,14 @@
 ---
-// Stub: full implementation in Task 5
 interface Props {
   difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
 }
 const { difficulty } = Astro.props;
+const styles = {
+  Beginner: 'bg-success-light text-green-700',
+  Intermediate: 'bg-amber-50 text-amber-700',
+  Advanced: 'bg-red-50 text-red-700',
+};
 ---
-<div data-difficulty-badge-stub>{difficulty}</div>
+<span class={`text-xs font-semibold px-2 py-1 rounded ${styles[difficulty]}`}>
+  {difficulty}
+</span>
