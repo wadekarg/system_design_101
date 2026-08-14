@@ -1,0 +1,66 @@
+---
+title: "Object Storage"
+description: "Store large, unstructured files at virtually unlimited scale with extreme durability — understand the flat key-value model, S3 concepts, and when to use a CDN in front."
+order: 9
+difficulty: Beginner
+readTime: "8 min read"
+diagram: ObjectStorageDiagram
+relatedTopics:
+  - building-blocks/cdn
+  - building-blocks/sql-databases
+takeaways:
+  - "Object storage uses a flat key-value model — there are no real folders, just key prefixes"
+  - "It is designed for large, unstructured files at virtually unlimited scale with extreme durability"
+  - "Pre-signed URLs allow secure, time-limited access to private objects without exposing credentials"
+  - "Always put a CDN in front of object storage for static asset delivery to end users"
+---
+
+## What is Object Storage
+
+Object storage is a data storage architecture that manages data as discrete units called objects — a pairing of a blob of binary data (the file content) with a unique identifier and associated metadata. Unlike file systems, which organize files in a hierarchical directory tree, object storage uses a flat namespace: every object lives directly in a container (called a bucket in Amazon S3), identified by a unique key string. There are no nested directories, no folders, no file path traversal.
+
+The primary design goal of object storage is to store massive volumes of large, unstructured files with extremely high durability and virtually unlimited scalability, without the complexity and cost of network-attached file systems. An image hosting service storing billions of user photos, a video platform storing petabytes of video files, a software company storing build artifacts and log archives — these are the workloads object storage was designed for.
+
+Object storage sacrifices some capabilities that file systems provide. You cannot do partial writes (read the first kilobyte of a file, modify it, and write it back). Every write is an overwrite of the complete object. You cannot append to an existing object efficiently. These limitations are acceptable for the file types object storage is optimized for: images, videos, backups, and logs are typically written once and read many times.
+
+## Object vs File vs Block Storage
+
+Understanding where object storage fits in the storage landscape requires contrasting it with the other major storage paradigms.
+
+**Block storage** divides data into fixed-size blocks, each with a block address. Operating systems and databases use block storage directly — it is the abstraction that underlies your local SSD and cloud storage volumes like AWS EBS. Block storage is fast, supports random reads and writes, and is directly attached to (or presented to) a single compute instance. Databases write to block storage because they need low-latency random access to specific pages on disk. Block storage is not suited for storing many independent large files because there is no built-in notion of a file; that is the file system's job.
+
+**File storage** (network-attached storage, or NAS) presents the familiar hierarchical file system abstraction over a network. Multiple compute instances can mount the same file system and read and write files concurrently. AWS EFS and Azure Files are cloud-native file storage services. File storage is appropriate when multiple instances need shared access to the same file tree — for example, a legacy application that reads configuration from a shared file path. File storage is not cost-effective or scalable for billions of individual large files.
+
+**Object storage** (Amazon S3, Google Cloud Storage, Azure Blob Storage) is designed specifically for storing large volumes of unstructured data at scale. It is accessed over HTTP, requires no mounting, supports massive concurrency (millions of simultaneous downloads), and scales storage capacity automatically. It is significantly cheaper per gigabyte than block or file storage. The trade-off is latency: individual object reads have higher latency than block storage (tens of milliseconds vs microseconds), making it unsuitable for databases or applications requiring low-latency random access.
+
+## How Object Storage Works
+
+When you store an object in S3 (or any compatible system), you write a blob of bytes along with a key (the identifier) and optional metadata key-value pairs. S3 stores the object redundantly across multiple physical locations — spreading copies across multiple availability zones or even regions — using erasure coding techniques that provide extreme durability.
+
+Amazon S3 advertises **11 nines of durability** (99.999999999%) for Standard storage. To put that in perspective: if you stored 10 million objects, you would expect to lose one object every 10,000 years. This durability is achieved not by keeping multiple full copies (which would triple storage costs) but through erasure coding — a mathematical technique that encodes data into redundant fragments such that any subset of fragments can reconstruct the original data, even if some fragments are lost.
+
+The key namespace within a bucket is flat. A key like `photos/user123/avatar.jpg` is simply a string — the slashes are part of the key, not a directory structure. Object storage consoles and SDKs often display keys with shared prefixes as if they were folders (because it makes the UI navigable), but underneath, every object is directly in the bucket. This distinction matters when designing key naming conventions: `logs/2024/01/15/app.log` and `logs/2024/01/16/app.log` are two independent objects that happen to share a prefix, not files in a directory tree.
+
+Because object storage is accessed over HTTP, reads are standard HTTP GET requests. High parallelism is inherent: one million clients can simultaneously download objects from S3 with no coordination, and S3 scales its serving capacity automatically to meet demand.
+
+## Amazon S3 Concepts
+
+Amazon S3 (Simple Storage Service) is the original and most widely used object storage service, and its concepts have become the de facto standard that other services (Google Cloud Storage, Azure Blob Storage, MinIO) largely replicate.
+
+**Buckets** are the top-level containers in S3. A bucket has a globally unique name, a configured region (the geographic location where data is stored), and access policies. All objects within a bucket share the same access configuration. Bucket names must be globally unique across all AWS accounts because S3 bucket URLs use the bucket name in the domain (`my-bucket.s3.amazonaws.com`).
+
+**Versioning** allows S3 to retain all versions of an object rather than overwriting when you upload an updated file. When versioning is enabled, uploading a new version of `photos/avatar.jpg` creates a new version with a unique version ID; the old version remains accessible by specifying the version ID. Versioning enables accidental deletion recovery and audit history, at the cost of additional storage for retained versions.
+
+**Lifecycle policies** automate the management of objects based on age. Common configurations include: move objects to a cheaper storage tier (S3 Infrequent Access or Glacier) after 30 days of no access, and permanently delete objects after 365 days. Lifecycle policies reduce storage costs for data that has a known useful lifetime, such as log files or temporary build artifacts.
+
+**Pre-signed URLs** are time-limited, cryptographically signed URLs that grant access to a private object. A pre-signed URL includes the object path and an expiration time in the URL signature, generated by your server using your AWS credentials. You can send this URL to a client (in a browser redirect, an email, or an API response), and the client can download or upload the object directly from S3 without requiring AWS credentials. Pre-signed URLs expire after the configured duration, limiting the window in which they can be used.
+
+**IAM access control** governs who can perform which operations on which resources. S3 bucket policies (resource-level policies) and IAM user/role policies (identity-level policies) both contribute to access decisions. Fine-grained access control is essential for production systems: application servers that read objects should have read-only access; CI/CD systems that deploy assets should have write access to specific prefixes; no service should have delete access unless it specifically needs to manage lifecycle.
+
+## When to Use Object Storage
+
+Object storage is the right choice for any workload involving large volumes of unstructured binary files: user-uploaded images, profile photos, video files, audio recordings, PDF documents, backup archives, log files, ML training datasets, and static website assets (JavaScript, CSS, images, fonts).
+
+For static asset delivery, object storage should always be paired with a CDN. Serving static assets directly from S3 adds latency (each request traverses the internet to the S3 endpoint in a specific region) and incurs data transfer costs that CDN caching can eliminate. Placing CloudFront, Cloudflare, or another CDN in front of S3 means that repeated requests for the same asset are served from a nearby CDN edge node, with only the first request (a cache miss) touching S3. This dramatically reduces both latency for end users and data transfer costs from S3.
+
+Object storage is not a replacement for databases. While you can store JSON documents in S3, you cannot query them by field values, join them with other objects, or update individual fields without rewriting the entire object. Use a database for structured, queryable data and object storage for the binary blobs that database records reference (for example, store a product's metadata in a database row and store the product image in S3, with the database row containing the S3 key).

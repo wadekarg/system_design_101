@@ -1,0 +1,77 @@
+---
+title: "Database Replication"
+description: "Copy data across multiple nodes to improve availability, increase read throughput, and survive hardware failures — with a careful eye on consistency trade-offs."
+order: 6
+difficulty: Intermediate
+readTime: "11 min read"
+diagram: ReplicationDiagram
+relatedTopics:
+  - building-blocks/database-sharding
+  - patterns/leader-election
+  - building-blocks/sql-databases
+takeaways:
+  - "Replication improves read throughput by allowing reads to be distributed across multiple replicas"
+  - "Replication lag means replicas are temporarily behind — design read paths to tolerate stale data"
+  - "Synchronous replication guarantees no data loss but increases write latency"
+  - "Automatic failover requires careful quorum design to prevent split-brain scenarios"
+---
+
+## What is Replication
+
+Database replication is the process of copying data from one database node to one or more additional nodes. The copies (replicas) contain the same data as the original (the leader or primary), kept up-to-date by continuously applying the same writes that are applied to the primary. Replication serves two distinct purposes: high availability (if one node fails, others continue serving data) and read scaling (read queries can be distributed across multiple nodes instead of hitting a single one).
+
+Replication is a fundamental building block in virtually every production database setup. A single database node is a single point of failure — when it goes down (and it will, eventually), the entire system loses its data layer. More practically, a single node has finite read throughput: its CPU, memory, and network bandwidth put a ceiling on the number of read queries it can serve per second. Replication addresses both concerns simultaneously.
+
+The central challenge of replication is keeping replicas consistent with the leader. Every write that hits the leader must eventually reach all replicas. If writes happen faster than they can be replicated, or if a replica becomes temporarily unreachable, the system enters a state of inconsistency that must be carefully managed. Different replication modes make different trade-offs between the strength of consistency guarantees and the performance impact of replication.
+
+## Leader-Follower Architecture
+
+The most common replication topology is leader-follower (also called primary-replica or master-slave). One node is designated the leader — all writes must go through the leader. The leader applies each write to its local storage, records it in a replication log, and sends the log entries to its followers. Each follower applies the log entries in the same order, arriving at the same data state as the leader. Reads can be served by either the leader or any follower.
+
+This architecture maps naturally to the common workload profile of read-heavy applications. A social media platform might have 1% of requests being writes (new posts, likes, comments) and 99% being reads (loading feeds, profiles, post pages). In a leader-follower setup, all writes hit the leader, while the massive read load is spread across potentially dozens of follower replicas. Each additional follower increases read capacity without adding any write overhead beyond the cost of replication itself.
+
+The leader-follower model also provides a clear path to recovery when the leader fails. A follower that is fully caught up with the leader can be promoted to become the new leader. This promotion can be done manually by an operator, or automatically by an orchestration system using a consensus algorithm to elect a new leader. The promoted follower then begins accepting writes, and other followers point to it as their new replication source.
+
+## Synchronous vs Asynchronous Replication
+
+The timing of replication — specifically, whether the leader waits for followers to acknowledge writes before confirming them to the client — is the most important configuration decision in a replicated database.
+
+In **synchronous replication**, the leader sends a write to one or more followers and waits for their acknowledgement before confirming the write to the client. The client's write is not considered complete until the leader and at least one follower have durably stored the data. This provides the strongest consistency guarantee: if the leader crashes immediately after confirming a write, a fully-caught-up follower is guaranteed to exist and can take over without any data loss.
+
+The cost of synchronous replication is write latency. The write operation now must wait for at least two network round-trips: one from the client to the leader, and one from the leader to the follower. If the follower is in a different data center or geographic region, this added latency can be substantial. More critically, if the synchronous follower becomes unavailable (network partition, hardware failure), the leader must block all writes until the follower recovers or is manually removed from the synchronous set. In practice, most deployments use semi-synchronous replication: one follower is synchronous, providing a durability guarantee, while others are asynchronous.
+
+In **asynchronous replication**, the leader applies the write locally and confirms it to the client immediately, then sends the write to followers in the background. Writes are fast — the client's round-trip only includes the leader's local write — and follower unavailability does not block writes. The trade-off is that if the leader crashes before asynchronous writes have reached the followers, those writes are lost. Asynchronous replication is appropriate when write performance is critical and some data loss is acceptable (for example, cached views or non-critical analytics data), but it must be used with clear awareness of the durability trade-off.
+
+## Replication Lag
+
+Asynchronous replication introduces **replication lag**: the period between when a write is committed on the leader and when it appears on the followers. During this window, a read from a follower may return stale data. Replication lag is typically measured in milliseconds under normal load, but can grow to seconds or minutes during heavy write traffic or network instability.
+
+Replication lag creates subtle consistency problems in applications that read after writing. Imagine a user changes their email address — the write goes to the leader. If the confirmation page then reads the user's profile from a follower that has not yet applied the update, it will display the old email address, making it appear that the update failed. This is a violation of **read-your-own-writes consistency**: the user should always see their own recent writes.
+
+Solutions include: routing reads for recently-written data to the leader (at the cost of not benefiting from read scaling); tracking the replication position of each write and refusing to serve reads from replicas that have not caught up to that position; or using a sticky-session approach where a user always reads from the same replica. Each solution adds application complexity, which is why replication lag is a design concern that must be addressed explicitly rather than ignored.
+
+## Multi-Leader Replication
+
+In leader-follower replication, all writes must route through a single leader. For applications deployed across multiple geographically separated data centers, this means that writes from users near the follower data centers must travel to the distant leader data center — adding significant latency for those users.
+
+Multi-leader replication (also called active-active replication) places a leader in each data center. Users write to whichever leader is geographically nearest, and the leaders replicate their writes to each other. Reads can be served by the local leader or its followers. Write latency improves dramatically for users near non-primary data centers.
+
+The complication is **write conflicts**: if two users in different data centers simultaneously update the same record (updating the same product's description, for example), both leaders accept the write, and there is no clear winner. The system must detect and resolve the conflict. Resolution strategies include last-write-wins (LWW, discarding one write based on timestamp — prone to clock skew issues), merge (combining both changes in a domain-specific way), or surfacing the conflict to the application to resolve. Building robust conflict resolution is difficult and error-prone, which is why multi-leader replication is reserved for systems where the geographic write latency reduction justifies the added complexity.
+
+## Leaderless Replication
+
+Leaderless replication (popularized by Amazon's Dynamo paper and used in Cassandra and Riak) eliminates the concept of a single designated leader entirely. A client sends each write to multiple replicas simultaneously. The write is considered successful when a quorum of replicas — at least W nodes out of N total — acknowledges it. Similarly, reads are sent to multiple replicas, and the response is considered valid when at least R replicas respond, with the most recent value (determined by version number or timestamp) being returned.
+
+The quorum relationship W + R > N is the key invariant. If you have 5 replicas (N=5) and require W=3 write acknowledgements and R=3 read responses, then any read quorum (3 nodes) must overlap with any write quorum (3 nodes) by at least one node — ensuring that at least one read response always contains the most recent write. Setting W and R independently allows tuning the consistency-availability trade-off: high W (write to many replicas before acknowledging) provides stronger write durability; high R (read from many replicas) provides stronger read consistency.
+
+Leaderless systems handle node failures gracefully: if a replica is unavailable, writes still succeed as long as W other replicas acknowledge them. When the failed replica recovers, it uses anti-entropy processes to catch up with the writes it missed. This makes leaderless replication highly available and resilient to failures, at the cost of operating in eventual consistency mode — reads may temporarily return stale values.
+
+## Failover
+
+When the leader fails, the system must promote a follower to become the new leader. This process is called failover and can be manual (an operator explicitly designates a new leader) or automatic (an orchestration system detects the failure and promotes a follower without human intervention).
+
+Automatic failover requires solving two problems: detecting that the leader has failed (rather than just being temporarily slow or partitioned), and selecting which follower to promote. The detection problem is subtle: a leader that appears to have failed from the perspective of one node might still be running and serving clients. Promoting a new leader under these conditions risks **split-brain** — two nodes simultaneously believing they are the leader, both accepting writes, resulting in data divergence.
+
+Split-brain is prevented through quorum-based protocols: a node can only be promoted to leader if it receives acknowledgement from a majority of nodes in the cluster. If the network is partitioned into two halves, only the larger half can form a quorum, and only that half can elect a leader. The smaller half becomes unavailable rather than electing its own leader. **Fencing tokens** add a further safeguard: each leader is assigned a monotonically increasing token, and every write to storage includes the token. If an old leader issues writes with an expired token (after a new leader has been elected), the storage layer rejects them.
+
+The choice of which follower to promote also matters. The follower that is most caught up (has the smallest replication lag) is the best candidate, as it minimizes the data loss window. Some orchestration systems (like Patroni for PostgreSQL) implement the full election and failover protocol, handling leader detection, quorum-based election, and controlled promotion automatically.

@@ -1,0 +1,67 @@
+---
+title: "SQL Databases"
+description: "Understand relational databases, ACID guarantees, indexing, joins, and when structured data with strong consistency is the right tool."
+order: 4
+difficulty: Intermediate
+readTime: "13 min read"
+diagram: SqlDiagram
+relatedTopics:
+  - building-blocks/nosql-databases
+  - building-blocks/database-replication
+  - building-blocks/database-sharding
+takeaways:
+  - "ACID guarantees make SQL databases ideal for financial and transactional systems"
+  - "Indexes dramatically speed up reads but slow down every write — index thoughtfully"
+  - "SQL databases scale vertically with ease but horizontal sharding adds significant complexity"
+  - "Normalization prevents data anomalies; denormalization improves read performance"
+---
+
+## Relational Databases
+
+A relational database organizes data into tables — two-dimensional grids of rows and columns — with a predefined schema that specifies what columns exist, what data type each column holds, and what constraints apply (not null, unique, foreign key relationships). Each row in a table represents one record; each column represents one attribute of that record. Tables are related to each other through foreign keys: a row in an `orders` table might have a `user_id` column that references the `id` column of the `users` table, expressing the relationship between an order and the user who placed it.
+
+The schema-first nature of relational databases is one of their defining characteristics. Before you can insert data, you must define the structure. This discipline has a cost — schema migrations require care, and schema changes on large tables can be expensive or require downtime — but it provides significant benefits: the database enforces data integrity at the storage layer, and any code that queries the database can rely on the shape of the data. A column declared as NOT NULL will never contain null values; a foreign key will never reference a row that does not exist.
+
+SQL (Structured Query Language) is the universal language for interacting with relational databases. Its power lies in expressing complex queries declaratively: you describe what data you want, and the database's query planner decides how to retrieve it efficiently. `SELECT * FROM orders WHERE user_id = 42 AND status = 'shipped' ORDER BY created_at DESC LIMIT 10` is a complete retrieval operation in a single line that would require dozens of lines of manual code to implement. Popular SQL databases include PostgreSQL (the most feature-rich open-source SQL database), MySQL (widely adopted, especially in web applications), and SQLite (embedded in applications, ideal for local storage).
+
+## ACID Properties
+
+ACID is the set of properties that relational databases guarantee for transactions. These guarantees are what make SQL databases the default choice for any workload where data correctness is non-negotiable.
+
+**Atomicity** means that a transaction is all-or-nothing. Either every operation within the transaction succeeds and is committed, or none of them are. If you transfer money between two bank accounts — debit one, credit the other — and the database crashes after the debit but before the credit, atomicity ensures the debit is rolled back. There is no partial state that leaves the system with inconsistent balances.
+
+**Consistency** means that every transaction brings the database from one valid state to another. Validity is defined by the constraints declared in the schema: foreign key constraints, unique constraints, check constraints, and application-level invariants enforced through triggers. A transaction that would violate a foreign key constraint (for example, inserting an order that references a user_id that does not exist) is rejected entirely, preserving the consistency of the data.
+
+**Isolation** means that concurrently executing transactions do not see each other's partial state. If two transactions are running simultaneously and one is in the middle of a complex multi-row update, the other transaction sees either the complete pre-update state or the complete post-update state — never an intermediate state. The exact behavior is configurable through isolation levels (Read Committed, Repeatable Read, Serializable), with higher isolation levels providing stronger guarantees at the cost of more lock contention.
+
+**Durability** means that once a transaction is committed, it is permanent. Even if the database server crashes immediately after acknowledging the commit, the data is not lost. Databases achieve this through write-ahead logging (WAL): every change is written to a durable log file before being applied to the main data files. On recovery after a crash, the database replays the WAL to restore committed state.
+
+## Schema and Indexing
+
+A well-designed schema is the foundation of database performance. Normalization is the process of organizing schema to eliminate data redundancy and update anomalies. A normalized schema stores each piece of information in exactly one place: if a customer's name changes, you update one row in the `customers` table, and every order that references that customer automatically reflects the change through the foreign key relationship. Without normalization, you might store the customer name on every order row, and a name change requires updating potentially thousands of rows — with the risk of inconsistency if any are missed.
+
+Normalization can be taken too far. Highly normalized schemas (3NF and beyond) require many JOIN operations to reconstruct denormalized views, and joins have computational cost. For read-heavy workloads, denormalization — deliberately duplicating data across tables to avoid joins at query time — is a common optimization. A reporting table might store pre-computed aggregates that would otherwise require expensive GROUP BY queries over millions of rows.
+
+An index is a separate data structure (typically a B-tree) that the database maintains alongside a table to speed up certain queries. Without an index on `orders.user_id`, a query like `SELECT * FROM orders WHERE user_id = 42` requires scanning every row in the orders table to find matching ones — a full table scan. With an index on `user_id`, the database looks up the relevant rows in the B-tree in O(log n) time. Indexes can be dramatic: a query that takes 30 seconds without an index might complete in 2 milliseconds with one.
+
+The cost of indexes is write performance. Every time a row is inserted, updated, or deleted, all indexes on that table must be updated. A table with ten indexes requires eleven writes for every logical write (one to the table itself, ten to maintain the indexes). Index management also consumes disk space and memory (indexes are cached in the buffer pool). The practical discipline is to create indexes that satisfy your actual query patterns — typically on columns used in WHERE clauses, JOIN conditions, and ORDER BY expressions — and avoid creating indexes that are never used by real queries.
+
+## Joins
+
+The JOIN operation is the mechanism by which SQL databases combine rows from multiple tables based on a related column. It is the practical realization of the relationships expressed through foreign keys.
+
+An `INNER JOIN` returns only rows that have matching values in both tables. `SELECT orders.id, users.name FROM orders INNER JOIN users ON orders.user_id = users.id` returns one row per order, augmented with the name of the user who placed it. Orders without a matching user (which should not exist if foreign keys are enforced) are excluded.
+
+A `LEFT JOIN` returns all rows from the left table and any matching rows from the right table. Rows in the left table with no match in the right table are included with NULL values for the right table's columns. This is useful for finding all users and any orders they may have placed — including users who have placed no orders yet.
+
+The **N+1 query problem** is a common performance anti-pattern that emerges from naive join handling in ORM (Object-Relational Mapping) frameworks. Suppose your code loads a list of 100 orders and then, for each order, makes a separate query to load the associated user. Instead of one query (a JOIN), you execute 101 queries — one to load orders, and one per order to load the user. The solution is eager loading: explicitly telling the ORM to fetch related records in a single JOIN query, or using a batch load (fetch all required user IDs in one IN clause).
+
+## When to Use SQL
+
+SQL databases are the right default for most systems that need structured data with complex relationships, strong consistency guarantees, and ad-hoc query flexibility.
+
+Financial and transactional systems — payment processing, accounting ledgers, order management — are the canonical use case. ACID guarantees are non-negotiable when money is involved. The ability to execute a fund transfer as an atomic transaction, knowing that a crash at any point will leave balances consistent, is difficult to replicate with non-relational databases.
+
+Complex reporting and analytics workloads benefit from SQL's expressive query language. Multi-table joins, aggregations, window functions, and subqueries allow analysts to answer novel questions without requiring custom code to be deployed. A reporting query that crosses five tables and aggregates millions of rows is straightforward to write in SQL and hard to replicate in a key-value store.
+
+The primary scaling limitation of SQL databases is that they are designed for vertical scaling — adding CPU, RAM, and faster storage to a single server. A single well-configured PostgreSQL instance can handle tens of thousands of queries per second and terabytes of data, which is sufficient for the vast majority of applications. When you exceed the capacity of a single machine, horizontal scaling options (replication for reads, sharding for writes) add substantial complexity. If you anticipate needing to scale writes across many machines from the start, a NoSQL database with built-in horizontal scaling may be the better starting point.

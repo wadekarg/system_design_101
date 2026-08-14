@@ -1,0 +1,84 @@
+---
+title: "WebSockets & Long Polling"
+description: "Bridge the gap between HTTP's pull model and real-time applications — compare short polling, long polling, Server-Sent Events, and WebSockets to pick the right tool."
+order: 10
+difficulty: Intermediate
+readTime: "10 min read"
+diagram: WebsocketsDiagram
+relatedTopics:
+  - fundamentals/apis
+  - building-blocks/message-queues
+takeaways:
+  - "WebSockets enable true bidirectional real-time communication over a single persistent connection"
+  - "Long polling is a pragmatic fallback when WebSockets are not supported by the infrastructure"
+  - "Server-Sent Events are simpler than WebSockets for one-way server-to-client event streams"
+  - "Stateful WebSocket connections require sticky sessions or a shared pub/sub backend to scale horizontally"
+---
+
+## The Problem with HTTP for Real-Time
+
+HTTP is a request-response protocol designed around the pull model: the client initiates every interaction, the server responds, and the connection closes (or is reused via keep-alive, but the request-response cycle is complete). This model is a perfect fit for the vast majority of web interactions — fetching a web page, submitting a form, querying an API — where the client knows when it needs data and asks for it.
+
+Real-time applications invert this model. A chat application needs to push new messages to clients the moment they arrive. A live dashboard needs to push metric updates to browsers every second. A multiplayer game needs to push player positions tens of times per second. In all of these cases, the server has data that needs to reach the client, but the client has no way of knowing when that data will arrive, so it cannot know when to send an HTTP request to retrieve it.
+
+This mismatch between HTTP's design and real-time requirements has driven the development of several techniques and protocols, each making different trade-offs between implementation complexity, infrastructure compatibility, performance, and capability. Understanding the options — and when to use each — is an important part of designing real-time features.
+
+## Short Polling
+
+Short polling is the simplest approach: the client repeatedly sends HTTP requests on a fixed interval, asking "do you have anything new for me?" If the server has new data, it returns it. If not, it returns an empty response. The client waits for the configured interval (say, 5 seconds) and asks again.
+
+Short polling requires no special server support — it is just regular HTTP. The client-side implementation is straightforward. For simple use cases where some delay is acceptable (refreshing a dashboard every 30 seconds, checking the status of a long-running job every 10 seconds), short polling is entirely reasonable.
+
+The problems emerge at scale and when frequency must be high. If you have 100,000 users polling every 5 seconds, your server receives 20,000 requests per second — the vast majority of which return empty responses. This is enormous wasted bandwidth and server computation. Reducing the polling interval to 1 second (to improve responsiveness) multiplies the waste fivefold. Short polling does not scale to high-frequency, high-concurrency real-time scenarios.
+
+## Long Polling
+
+Long polling (also called the Comet technique, named after the web framework) is an adaptation of the pull model that dramatically reduces the number of empty responses. Instead of the client sending a request and the server immediately responding (whether or not it has data), the server holds the connection open until it has data to send, then responds and closes the connection. The client immediately sends a new request upon receiving the response, creating a continuous cycle.
+
+From the client's perspective, long polling feels like a continuous stream — the client is always waiting for the server's next response, and responses arrive the moment the server has something to say. From the server's perspective, it must hold many simultaneous open connections — one per active client — without doing any work on most of them most of the time, then respond to them when relevant events occur.
+
+Long polling works over standard HTTP and is compatible with most infrastructure including HTTP proxies, CDNs, and corporate firewalls. This compatibility is its main advantage over WebSockets. The costs are: each message delivery still requires a full HTTP request-response cycle (with its header overhead), and the server must efficiently manage large numbers of idle open connections. Modern event-driven servers (Node.js, Nginx) handle idle connections cheaply; thread-per-connection servers (traditional Java servlet containers) struggle with long polling at scale because each idle connection occupies an operating system thread.
+
+## Server-Sent Events
+
+Server-Sent Events (SSE) is a web standard (part of the HTML5 specification) that provides a clean, standardized way for servers to push a stream of events to clients over a single HTTP connection. The client opens an HTTP connection using the `EventSource` JavaScript API, and the server keeps that connection open indefinitely, sending events as a stream of specially formatted text lines whenever it has data.
+
+SSE is strictly one-directional: the server can send events to the client, but the client cannot send data to the server over the same connection (it must use a separate HTTP request for that). For many real-time scenarios, this is sufficient — live score updates, news feeds, stock tickers, and push notifications all require only server-to-client data flow.
+
+The SSE specification includes automatic reconnection: if the connection drops, the browser's EventSource implementation automatically reconnects, and if the server includes an event ID, the client sends that ID in the `Last-Event-ID` header on reconnection, allowing the server to resume the stream from where it left off. This built-in reliability mechanism simplifies implementation significantly compared to managing WebSocket reconnection logic manually.
+
+SSE works over HTTP/1.1 and HTTP/2. Over HTTP/2, which multiplexes multiple streams over a single TCP connection, many SSE streams can coexist efficiently, making SSE's per-connection overhead much lower than over HTTP/1.1. SSE is simpler to implement than WebSockets and a better choice when you only need server-to-client communication.
+
+## WebSockets
+
+WebSockets provide full-duplex communication over a single persistent TCP connection. Both the client and the server can send data to each other at any time, with very low overhead after the initial connection is established.
+
+A WebSocket connection begins as a standard HTTP request — the client sends a specially crafted HTTP GET request with an `Upgrade: websocket` header. If the server supports WebSockets, it responds with a 101 Switching Protocols response, and the connection is upgraded from HTTP to the WebSocket protocol. From this point on, the connection is a raw TCP socket over which both sides can send WebSocket frames — small, efficient data units with a 2–10 byte header (far smaller than HTTP's kilobytes of headers per request).
+
+The low per-message overhead and full-duplex capability make WebSockets the right choice for applications that require high-frequency bidirectional communication: chat applications (messages flow in both directions continuously), multiplayer games (client sends player actions, server sends game state updates), collaborative document editing (every keystroke flows bidirectionally), and live trading platforms (orders go from client to server, price updates flow from server to client).
+
+WebSockets are persistent — once established, the connection remains open until explicitly closed. This stateful nature provides performance benefits (no repeated handshake overhead) but creates scaling challenges (described below). WebSockets are not compatible with all HTTP infrastructure — some corporate proxies and CDNs that terminate and re-establish HTTP connections cannot handle the WebSocket upgrade. For environments where WebSocket compatibility is uncertain, SSE or long polling may be more reliable fallbacks.
+
+## Scaling WebSockets
+
+The stateful nature of WebSocket connections — each client is connected to a specific server instance with a persistent TCP connection — creates a fundamental challenge for horizontal scaling.
+
+In a typical stateless HTTP architecture, any server can handle any request: a load balancer distributes requests across servers, and since no server holds any client-specific state, it does not matter which server handles which request. This makes scaling as simple as adding more servers.
+
+With WebSocket connections, each client is connected to a specific server instance. If you have four server instances and a client is connected to server 2, any message the server needs to send to that client must be delivered by server 2. If a different service or server wants to push a notification to that client, it must somehow route the message to server 2.
+
+**Sticky sessions** are the simpler solution: the load balancer routes all requests from a given client to the same server instance, using the client's IP address or a session cookie. This ensures that all WebSocket messages for a client are handled by the server holding its connection. The limitation is that if server 2 crashes, all of its client connections are dropped — there is no graceful failover.
+
+**Pub/Sub backends** are the scalable solution. When any server needs to push a message to a client, it publishes to a shared message bus (Redis Pub/Sub is commonly used) keyed by client ID. Every server subscribes to the channels for the clients it is connected to. When a message is published, it is delivered to exactly the server holding the relevant client's WebSocket connection, which then forwards it over the connection. This decouples message delivery from connection state, allowing any server in the system to reach any client. The WebSocket layer scales horizontally, and the pub/sub backend (Redis) handles message routing.
+
+## When to Use Each
+
+The choice between real-time techniques depends on your direction of data flow, infrastructure constraints, and implementation complexity tolerance.
+
+**Short polling** is appropriate for low-frequency checks (every 30 seconds or more) where a small latency window is acceptable and simplicity is the priority. Checking the status of a background job, refreshing a dashboard every minute, or polling for configuration updates are good fits.
+
+**Long polling** is the pragmatic choice when you need lower latency than short polling but must operate in environments where WebSockets are blocked (some corporate networks, certain CDN configurations). It also provides a solid fallback for browsers or clients that do not support WebSockets.
+
+**Server-Sent Events** are the best choice for one-way server-to-client streams where the browser is the client, the updates flow only from server to client, and you want a well-supported web standard with built-in reconnection. Notification systems, live feeds, and progress updates are ideal.
+
+**WebSockets** are the right choice when you need true bidirectional real-time communication with low latency and high message frequency. Chat, gaming, collaborative editing, and live financial data dashboards all warrant WebSockets, along with the investment in connection management, scaling strategy (pub/sub backend or sticky sessions), and fallback handling that WebSocket adoption requires.

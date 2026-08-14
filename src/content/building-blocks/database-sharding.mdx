@@ -1,0 +1,69 @@
+---
+title: "Database Sharding"
+description: "Partition data horizontally across multiple database instances to scale writes and storage beyond what any single machine can handle — and understand the painful trade-offs."
+order: 7
+difficulty: Advanced
+readTime: "14 min read"
+diagram: ShardingDiagram
+relatedTopics:
+  - patterns/consistent-hashing
+  - building-blocks/database-replication
+  - building-blocks/nosql-databases
+takeaways:
+  - "Sharding is necessary when a single database cannot handle your data volume or write throughput"
+  - "Hash-based sharding distributes data evenly but makes range queries and resharding difficult"
+  - "Your shard key choice determines whether you get hotspots — choose based on access patterns"
+  - "Consistent hashing minimizes data movement when adding or removing shards from the cluster"
+---
+
+## What is Sharding
+
+Sharding (also called horizontal partitioning) is the technique of splitting a database into multiple independent pieces — shards — each of which holds a subset of the total data and is served by a separate database instance, potentially on separate hardware. Where replication creates full copies of the data on multiple machines, sharding distributes the data so that each machine holds only a portion. Taken together, all shards contain the complete dataset.
+
+Sharding becomes necessary when the data volume or write throughput of an application exceeds what a single database instance can handle. Replication improves read throughput by distributing reads across replicas, but it does nothing for write throughput — all writes still hit a single leader. Adding a read replica does not help if your bottleneck is the rate at which you can write to disk or process write transactions. Sharding distributes writes across multiple leaders (the primary node of each shard), so the total write throughput of the system is approximately N times the throughput of a single shard, where N is the number of shards.
+
+Sharding is the mechanism that enables databases to scale to truly massive data volumes. Twitter's database system, for example, stores billions of tweets. No single database instance can hold billions of rows while maintaining acceptable write performance. By distributing tweets across hundreds of shards, each shard holds a manageable fraction of the total data and handles a corresponding fraction of the write load.
+
+## Vertical vs Horizontal Partitioning
+
+Before committing to horizontal sharding, it is worth understanding the simpler alternative: vertical partitioning. Vertical partitioning splits a table by columns rather than rows. A `users` table with 50 columns might be split into a `users_core` table (user ID, email, password hash — accessed on every request) and a `users_profile` table (bio, avatar URL, preferences — accessed infrequently). The two tables contain the same rows but different columns. This can improve performance by keeping hot data compact (fewer columns means smaller rows, more rows fit in memory, better cache utilization) and by splitting a large table across separate storage systems (core data in a fast NVMe SSD-backed database, profile data in a slower but cheaper storage system).
+
+Horizontal partitioning (sharding) splits a table by rows. Each shard contains a subset of the rows from the original table — the same columns, but different rows. This is what is typically meant when people say "sharding" without qualification. Horizontal partitioning is the approach taken when the bottleneck is the total number of rows and the write rate, rather than the number of columns or row width.
+
+## Sharding Strategies
+
+The shard key — the column (or columns) whose value determines which shard a given row belongs to — is the most consequential decision in a sharding design. Different strategies for mapping shard key values to shards have fundamentally different performance characteristics.
+
+**Range-based sharding** assigns contiguous ranges of shard key values to each shard. For a user database sharded by user ID, shard 1 might hold user IDs 1–1,000,000, shard 2 might hold 1,000,001–2,000,000, and so on. The primary advantage is that range queries are efficient: "find all users with ID between 500,000 and 600,000" touches exactly one shard. The primary disadvantage is hotspots. If new user IDs are always at the high end (because they are auto-incrementing), the shard holding the highest ID range receives all new-user writes, while older shards sit idle. Time-series data sharded by timestamp has this problem acutely: the current-time shard is always the write hotspot.
+
+**Hash-based sharding** computes a hash of the shard key and assigns the row to a shard based on the hash value, typically using modular arithmetic (`hash(key) % num_shards`). Hash functions produce uniformly distributed outputs for varied inputs, so hash-based sharding distributes data evenly across shards regardless of the key distribution pattern. A write-heavy workload with an auto-incrementing key will have its writes spread evenly across all shards. The disadvantages are the inverse of range-based sharding: range queries are now expensive (data with consecutive keys is on random shards), and resharding — adding or removing shards — requires rehashing and moving many rows.
+
+**Directory-based sharding** (also called lookup-based sharding) maintains a separate lookup table that records which shard holds each entity. To route a query for user 12345, you first query the directory service to find out that user 12345 is on shard 4, then query shard 4 directly. This approach is the most flexible — you can move individual rows between shards without changing any algorithm, useful for rebalancing. The cost is an additional network round-trip for the directory lookup on every query, and the directory service becomes a critical dependency that must itself be highly available and low-latency.
+
+## The Hotspot Problem
+
+A hotspot is a shard that receives disproportionately more traffic than other shards — either more read queries, more writes, or both. Hotspots undermine the purpose of sharding: if shard 3 receives 80% of all writes while the other seven shards handle the remaining 20%, you have not achieved effective write distribution; you have added operational complexity for 25% more total write capacity.
+
+The celebrity row problem is the classic hotspot scenario. Consider a social media platform sharded by user ID. A celebrity with 100 million followers has rows in the `follows` table referencing their user ID. Every time the celebrity posts, the system must read or write to rows associated with that user ID. If all of those rows are on the same shard (because they share the same user ID prefix in range-based sharding), that shard is overwhelmed while others sit idle.
+
+Mitigation strategies for hotspots include: adding a random suffix to shard keys for very popular entities (distributing their rows across multiple shards at the cost of gathering them at read time), replicating hot rows across multiple shards (allowing reads to be distributed while accepting write duplication), or pre-computing and caching derived views (materialized timelines, pre-aggregated counts) so that the hot row is never read directly on the critical path.
+
+## Resharding
+
+Adding shards to a running system — resharding — is one of the most operationally painful tasks in database management. With hash-based sharding using `hash(key) % num_shards`, changing the number of shards from 8 to 9 changes the target shard for nearly every key. Almost all data must be moved between shards. During the migration, the system must handle reads and writes correctly even as data is in motion, which requires careful coordination between old and new shard assignments.
+
+**Consistent hashing** is the algorithm designed to minimize resharding pain. Instead of using modular arithmetic, consistent hashing maps both shard keys and shards to positions on a large conceptual ring (typically a 32-bit or 64-bit hash space). Each key is assigned to the nearest shard in the clockwise direction on the ring. When a new shard is added, it takes over only the keys that were previously assigned to the shard clockwise-adjacent to it — approximately 1/N of all data, where N is the new total number of shards. When a shard is removed, only its data must be redistributed. Consistent hashing is used by systems like Cassandra, DynamoDB, and most distributed caching systems.
+
+Even with consistent hashing, resharding a production system is a significant operational event. Data migration takes time, and during migration, queries must handle the case where a key might be at the old shard or the new one. Dual-reading (checking both potential locations and reconciling) or blue-green migration (migrating completely to a new cluster before switching traffic) are common approaches.
+
+## Challenges and Trade-offs
+
+Sharding solves the write throughput and storage capacity problem but introduces a cluster of new challenges that significantly increase system complexity.
+
+**Cross-shard JOINs** are impossible (or extremely expensive). In an unsharded relational database, joining orders with users is a single operation executed by one query planner with access to both tables. In a sharded database, orders and users may be on different shards, and there is no query planner that spans multiple shards. Applications must handle cross-shard access in code: fetch the data from shard A, fetch related data from shard B, and join them in the application layer. This is slower (two round-trips instead of one) and more error-prone than database-level JOINs.
+
+**Distributed transactions** across shards require two-phase commit (2PC) or equivalent protocols. 2PC is slow, complex, and vulnerable to coordinator failures. Most sharded systems either avoid cross-shard transactions entirely (by designing the data model so that all related data lives on the same shard — co-location) or accept eventual consistency for cross-shard operations.
+
+**Global uniqueness** is complicated by sharding. In a single database, an auto-increment primary key is trivially unique. In a sharded database, each shard's auto-increment generates IDs independently, and two shards can generate the same integer ID. Globally unique IDs must be generated by a dedicated service (Twitter's Snowflake, UUID generation) or encoded to include the shard ID.
+
+The operational complexity of sharded databases — deployment, monitoring, query routing, resharding, backup and recovery — is significantly higher than an unsharded database. Many systems are best served by pushing vertical scaling as far as possible (a well-tuned PostgreSQL instance on powerful hardware handles billions of rows and thousands of writes per second), adopting read replicas to scale read throughput, and reaching for sharding only when these approaches are demonstrably insufficient.
