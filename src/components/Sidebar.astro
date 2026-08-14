@@ -1,4 +1,177 @@
 ---
-// Stub: full implementation in Task 6
+import ProgressBar from './ProgressBar.astro';
+import { SECTIONS } from '../data/curriculum';
+import { getCollection } from 'astro:content';
+
+const base = import.meta.env.BASE_URL;
+
+// Build nav items for all sections
+const navData: Array<{ section: string; label: string; icon: string; topics: Array<{ title: string; slug: string; order: number }> }> = [];
+
+for (const sec of SECTIONS) {
+  const entries = await getCollection(sec.id as any).catch(() => []);
+  const sorted = entries.sort((a, b) => a.data.order - b.data.order);
+  navData.push({
+    section: sec.id,
+    label: sec.label,
+    icon: sec.icon,
+    topics: sorted.map((e) => ({ title: e.data.title, slug: e.slug, order: e.data.order })),
+  });
+}
 ---
-<div data-sidebar-stub></div>
+
+<!-- Mobile toggle button -->
+<button
+  id="sidebar-toggle"
+  aria-label="Toggle sidebar"
+  class="fixed top-4 left-4 z-50 lg:hidden bg-white border border-border rounded-lg p-2 shadow-sm"
+>
+  <svg class="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+</button>
+
+<!-- Overlay for mobile -->
+<div id="sidebar-overlay" class="fixed inset-0 bg-black/30 z-30 hidden lg:hidden"></div>
+
+<!-- Sidebar -->
+<aside
+  id="sidebar"
+  class="fixed top-0 left-0 h-screen w-sidebar bg-white border-r border-border flex flex-col z-40
+         -translate-x-full lg:translate-x-0 transition-transform duration-200"
+>
+  <!-- Logo / Brand -->
+  <a href={base} class="flex items-center gap-2 px-5 py-4 border-b border-border hover:bg-bg transition-colors">
+    <span class="text-accent font-bold text-lg">SD</span>
+    <span class="text-text-primary font-semibold text-sm">System Design 101</span>
+  </a>
+
+  <!-- Nav sections (scrollable) -->
+  <nav class="flex-1 overflow-y-auto py-4 px-3">
+    {navData.map(({ section, label, icon, topics }) => (
+      <div class="mb-4" data-section={section}>
+        <button
+          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors"
+          data-section-toggle={section}
+          aria-expanded="true"
+        >
+          <span>{icon}</span>
+          <span>{label}</span>
+          <svg class="ml-auto w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <ul class="mt-1 space-y-0.5" data-section-list={section}>
+          {topics.map(({ title, slug }) => (
+            <li>
+              <a
+                href={`${base}${section}/${slug}`}
+                class="sidebar-link"
+                data-topic-link={`${base}${section}/${slug}`}
+              >
+                {title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </nav>
+
+  <!-- Progress and reset -->
+  <div class="border-t border-border">
+    <ProgressBar />
+    <button
+      id="reset-progress"
+      class="w-full text-xs text-text-secondary hover:text-red-500 px-4 py-2 transition-colors text-left"
+    >
+      Reset progress
+    </button>
+  </div>
+</aside>
+
+<!-- Sidebar spacer so content doesn't go under sidebar on desktop -->
+<div class="hidden lg:block w-sidebar shrink-0"></div>
+
+<script>
+  // Mobile sidebar toggle
+  const toggle = document.getElementById('sidebar-toggle');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+
+  toggle?.addEventListener('click', () => {
+    sidebar?.classList.toggle('-translate-x-full');
+    overlay?.classList.toggle('hidden');
+  });
+  overlay?.addEventListener('click', () => {
+    sidebar?.classList.add('-translate-x-full');
+    overlay?.classList.add('hidden');
+  });
+
+  // Section collapse/expand
+  document.querySelectorAll('[data-section-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const section = btn.getAttribute('data-section-toggle');
+      const list = document.querySelector(`[data-section-list="${section}"]`);
+      const arrow = btn.querySelector('svg');
+      list?.classList.toggle('hidden');
+      arrow?.classList.toggle('rotate-180');
+      btn.setAttribute('aria-expanded', list?.classList.contains('hidden') ? 'false' : 'true');
+    });
+  });
+
+  // Highlight active link
+  const currentPath = window.location.pathname;
+  document.querySelectorAll('[data-topic-link]').forEach((a) => {
+    if (a.getAttribute('data-topic-link') === currentPath) {
+      a.classList.add('active');
+    }
+  });
+
+  // Mark completed links
+  document.querySelectorAll('[data-topic-link]').forEach((a) => {
+    const href = a.getAttribute('data-topic-link') ?? '';
+    if (localStorage.getItem(`sd101_complete_${href}`) === '1') {
+      a.classList.add('completed');
+    }
+  });
+
+  // Update on topic-complete event
+  document.addEventListener('topic-complete', (e: any) => {
+    const { path } = e.detail;
+    document.querySelectorAll(`[data-topic-link="${path}"]`).forEach((a) => {
+      a.classList.add('completed');
+    });
+    updateProgress();
+  });
+
+  // Progress bar
+  function updateProgress() {
+    const links = document.querySelectorAll('[data-topic-link]');
+    const total = links.length;
+    if (total === 0) return;
+    let done = 0;
+    links.forEach((a) => {
+      const href = a.getAttribute('data-topic-link') ?? '';
+      if (localStorage.getItem(`sd101_complete_${href}`) === '1') done++;
+    });
+    const pct = Math.round((done / total) * 100);
+    const bar = document.getElementById('progress-bar');
+    const label = document.getElementById('progress-pct');
+    if (bar) bar.style.width = `${pct}%`;
+    if (label) label.textContent = `${pct}%`;
+  }
+
+  updateProgress();
+
+  // Reset progress
+  document.getElementById('reset-progress')?.addEventListener('click', () => {
+    if (confirm('Reset all progress?')) {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('sd101_complete_'))
+        .forEach((k) => localStorage.removeItem(k));
+      document.querySelectorAll('[data-topic-link]').forEach((a) => a.classList.remove('completed'));
+      updateProgress();
+    }
+  });
+</script>
