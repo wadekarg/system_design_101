@@ -15,7 +15,7 @@ for (const sec of SECTIONS) {
     section: sec.id,
     label: sec.label,
     icon: sec.icon,
-    topics: sorted.map((e) => ({ title: e.data.title, slug: e.slug, order: e.data.order })),
+    topics: sorted.map((e) => ({ title: e.data.title, slug: e.id, order: e.data.order })),
   });
 }
 ---
