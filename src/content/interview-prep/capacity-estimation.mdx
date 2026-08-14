@@ -1,0 +1,140 @@
+---
+title: "Capacity Estimation"
+description: "Learn to estimate traffic, storage, and bandwidth for any system — the back-of-the-envelope skill that separates senior engineers from the rest."
+order: 2
+difficulty: Intermediate
+readTime: "8 min read"
+diagram: CapacityDiagram
+relatedTopics: []
+takeaways:
+  - "QPS = Daily Active Users × actions per day ÷ 86400 seconds"
+  - "Always calculate peak QPS (2x average) for capacity planning"
+  - "Work in powers of 10 — you don't need exact numbers, just the right order of magnitude"
+  - "Doing capacity estimation signals seniority — interviewers notice when you skip it"
+---
+
+## Why Estimate
+
+Every major design decision in a distributed system is scale-dependent. The choice between a single database server and a sharded cluster, between synchronous and asynchronous replication, between storing data in a relational database or an object store — all of these hinge on the numbers. A system serving 10,000 users per day can be a single server with a Postgres instance. A system serving 300 million users per day needs a fundamentally different architecture.
+
+Capacity estimation is not about being precise. Production engineers have monitoring, load tests, and years of operational data to make precise forecasts. In an interview, the goal is to establish the right order of magnitude — to know whether you are designing for tens, thousands, or millions of requests per second, and whether your storage needs are gigabytes, terabytes, or petabytes. Getting the order of magnitude right narrows the design space dramatically and prevents you from defending an architecture that would collapse under actual load.
+
+Interviewers specifically watch for this step. Engineers who skip straight to the design reveal that they design by intuition rather than reasoning. Engineers who do a quick, confident estimation — even if imprecise — signal that they have built systems at scale and understand that load shapes architecture.
+
+## Powers of Two Cheat Sheet
+
+Working with large numbers is easier if you anchor to powers of two and their approximate decimal equivalents. Memorize these:
+
+| Power | Approximate value | Common name |
+|-------|------------------|-------------|
+| 2^10  | 1,000            | 1 Kilobyte (KB) |
+| 2^20  | 1,000,000        | 1 Megabyte (MB) |
+| 2^30  | 1,000,000,000    | 1 Gigabyte (GB) |
+| 2^40  | ~1 trillion      | 1 Terabyte (TB) |
+
+For memory sizing, also memorize common data type sizes:
+
+- 1 character (ASCII) = 1 byte
+- 1 integer (32-bit) = 4 bytes
+- 1 long integer (64-bit) = 8 bytes
+- 1 UUID = 16 bytes
+- 1 timestamp = 8 bytes
+- 1 typical URL = ~100 bytes
+
+These are your building blocks. When estimating the size of a database row, add up the fields. A tweet might have a user ID (8 bytes), a timestamp (8 bytes), and up to 280 characters of text (280 bytes): call it 300 bytes per tweet. That simple estimate becomes the foundation for storage calculations.
+
+## Traffic Estimation
+
+Traffic estimation starts with your user base and works forward to requests per second.
+
+**Step 1: Establish Daily Active Users (DAU).** This should come from your requirements clarification. If the interviewer says "design Twitter at its current scale," you can state that Twitter has roughly 300 million DAU and proceed. If they say "design a system for a new social network starting out," anchor to a plausible growth target and state your assumption.
+
+**Step 2: Estimate actions per user per day.** How many times does the average user perform the core write operation? For a social network, users might post a few times a week, so roughly 0.1 to 1 post per day per user. For a messaging app, users might send dozens of messages per day.
+
+**Step 3: Calculate average QPS.**
+
+```
+QPS = DAU × actions per user per day / 86,400 seconds
+```
+
+You can round 86,400 to 100,000 for simplicity — the resulting estimate is well within the margin of error of your other assumptions.
+
+**Step 4: Calculate peak QPS.** Traffic is never uniform. Social networks spike during major events; e-commerce sites spike during sales; news sites spike when breaking news hits. A safe rule of thumb is that peak traffic is 2x the daily average:
+
+```
+Peak QPS = 2 × Average QPS
+```
+
+Design your system to handle peak QPS, not average QPS. A system that handles average load but falls over during traffic spikes is a system that fails at the worst possible times.
+
+**Step 5: Account for read/write ratio.** Most systems are read-heavy. A social media timeline is read far more than it is written. If your write QPS is 34 per second and you have a 10:1 read-to-write ratio, your read QPS is 340 per second. These numbers drive different capacity decisions: write QPS drives your primary database and write path, read QPS drives your caching and read replica strategy.
+
+## Storage Estimation
+
+Once you know your write rate, estimating storage is a multiplication:
+
+```
+Storage per day = write QPS × record size × 86,400
+Storage per year = Storage per day × 365
+```
+
+Factor in retention. If you keep data for five years, multiply by five. If your data is append-only (logs, events, messages), it grows without bound until you archive or delete old records. State your retention assumption explicitly — it is a design decision, not a given.
+
+Also account for replication. If you replicate your data across three nodes for durability, your actual storage footprint is three times your logical data size. Object stores like S3 typically handle replication internally, but if you are provisioning raw disk for a database cluster, the replication factor matters.
+
+## Bandwidth Estimation
+
+Bandwidth measures how much data flows across the network per unit of time. It is separate from QPS because different requests have very different payload sizes.
+
+```
+Inbound bandwidth = write QPS × average write payload size
+Outbound bandwidth = read QPS × average read response size
+```
+
+For a system serving many small reads (user profiles, short posts), outbound bandwidth is moderate. For a system serving large media files (video streaming, high-resolution images), outbound bandwidth dominates and becomes a primary capacity concern. Content delivery networks (CDNs) exist largely to move bandwidth closer to users and reduce the load on origin servers — and that design decision is only obvious if you have estimated your bandwidth first.
+
+## Example: Design Twitter
+
+Let us work through a realistic Twitter-scale capacity estimation to see all the pieces together.
+
+**Given:** Twitter has approximately 300 million Daily Active Users. About 1% of users post a tweet on a given day. The average tweet is 300 bytes of text. About 10% of tweets include a media attachment averaging 1 MB in size. The read-to-write ratio for tweets is 10:1.
+
+**Step 1 — Write QPS:**
+
+```
+Tweets per day = 300,000,000 × 1% = 3,000,000
+Average write QPS = 3,000,000 / 86,400 ≈ 34 tweets/second
+Peak write QPS = 34 × 2 ≈ 70 tweets/second
+```
+
+The write path is not particularly demanding at 70 peak writes per second. A single well-provisioned database can handle this easily. The read path is the challenge.
+
+**Step 2 — Read QPS:**
+
+```
+Read QPS = 34 × 10 = 340 reads/second
+Peak read QPS = 340 × 2 = 680 reads/second
+```
+
+680 read QPS is also manageable, but remember that a single timeline request might fan out to many individual tweet reads, especially for a user following thousands of accounts. This is why Twitter's real engineering challenge is the fan-out problem, not raw QPS.
+
+**Step 3 — Tweet text storage:**
+
+```
+Daily text storage = 34 writes/second × 300 bytes × 86,400 seconds ≈ 880 MB/day
+Annual text storage ≈ 880 MB × 365 ≈ 320 GB/year
+```
+
+320 GB per year of text is very manageable by modern standards. A single high-end SSD can hold years of tweet text. The bottleneck is not storage of text.
+
+**Step 4 — Media storage:**
+
+```
+Tweets with media per day = 3,000,000 × 10% = 300,000
+Media storage per day = 300,000 × 1 MB = 300,000 MB ≈ 293 GB/day
+Annual media storage ≈ 293 GB × 365 ≈ 107 TB/year
+```
+
+107 terabytes per year of media is a very different proposition. This immediately explains why Twitter (and every large social network) stores media in object stores like S3 rather than in the primary database, serves it through CDNs, and compresses images aggressively. The estimation revealed the architectural driver: media, not text, is the storage and bandwidth problem.
+
+This is the power of capacity estimation. Working through the numbers, you discovered the real design constraint in under five minutes — before drawing a single box.

@@ -1,0 +1,78 @@
+---
+title: "Common System Design Interview Mistakes"
+description: "The six most common ways candidates fail system design interviews — and exactly how to avoid each one."
+order: 4
+difficulty: Beginner
+readTime: "7 min read"
+diagram: MistakesDiagram
+relatedTopics: []
+takeaways:
+  - "Clarify requirements first — always. Design for what's asked, not what's interesting"
+  - "Silence in an interview is your biggest enemy — think out loud"
+  - "Every system fails — show you've thought about failure modes"
+  - "Over-engineering wastes time and signals inexperience with real-world constraints"
+---
+
+## Mistake 1: Jumping to Solution
+
+This is the single most common failure mode in system design interviews, and it is entirely preventable. A candidate hears "design a URL shortener" and immediately starts drawing boxes — a web server here, a database there, a cache between them — before understanding anything about the actual requirements.
+
+The problem is that a URL shortener for a personal productivity tool and a URL shortener for a company serving billions of redirects per day are completely different design problems. The first is a single-server application with a simple database. The second requires distributed storage, aggressive caching, multi-region deployment, and careful capacity planning. Designing before clarifying requirements means you may be solving the wrong problem with the wrong architecture, and you will have wasted the first fifteen minutes of a forty-five-minute interview.
+
+The fix is behavioral, not technical: before you touch the whiteboard, spend five minutes asking questions. What are the core features? What scale are we designing for? What are the non-functional requirements around latency and availability? Getting these answers is not a sign of weakness — it is a sign of professional discipline. Senior engineers do not design before they understand.
+
+After you have clarified requirements, briefly state back your understanding: "Based on what we've discussed, I'll design for 300 million DAU, write latency under 500ms, read latency under 50ms, and the core features are shortening URLs and tracking click counts. Out of scope for today: user authentication and analytics dashboards. Does that match your expectation?" This confirms alignment and gives the interviewer a chance to redirect before you invest time in the wrong direction.
+
+## Mistake 2: Skipping Scale Estimation
+
+The second most common mistake is jumping from requirements directly to the design without estimating what the system must actually handle. This leads to architectures that are either dramatically under-designed (a single database for a system that will need horizontal sharding) or over-designed (a distributed message queue for a system serving 100 requests per day).
+
+Scale estimation — the back-of-the-envelope calculation — is not busywork. It is the step that determines whether you need a cache, whether you need database replication, whether you can fit your data on a single server or need to shard, whether your bandwidth fits on standard network links or requires a CDN. Skipping it means making those decisions by intuition, which signals to the interviewer that you have never had to think rigorously about production capacity.
+
+Spend five minutes on estimation. Calculate your QPS (`DAU × actions per day / 86400`), your peak QPS (2x average), your storage per year, and your bandwidth. Round aggressively. The goal is order of magnitude, not precision. Once you have numbers, use them explicitly in your design decisions: "At 680 peak read QPS, a single database replica with a modest cache should be sufficient for the read path — we don't need a distributed read tier yet."
+
+## Mistake 3: Ignoring Failure Modes
+
+A system that only works when all components are healthy is not a production system — it is a prototype. Real production systems fail constantly: disks fill up, network links degrade, database connections exhaust their pool, dependent APIs time out, and hardware fails at the most inconvenient times. A design that does not account for failure is a design that will produce 3am pages.
+
+In an interview, ignoring failure modes is a significant signal to the interviewer that you have not operated systems at scale. Engineers who have run production systems have war stories. They have been woken up at 3am by a cache that went cold and buried the database. They have watched a deployment go wrong and spent hours rolling back. Those experiences make failure modes a first-class design consideration, not an afterthought.
+
+Walk through your system and ask: what happens when this component fails? If the primary database goes down, does the system have a read replica that can take over? What is the failover time, and what happens to writes during that window? If the cache is cold (after a deploy or a cache flush), what is the impact on the database — can it handle the full load, or will it fall over? If the message queue stops accepting writes, does the write path block, or does the system degrade gracefully?
+
+You do not need to solve every failure mode in an interview. You need to demonstrate that you are aware of the major failure points and have thought about mitigation strategies. "I'd want to make sure the cache layer doesn't become a single point of failure — I'd use a replicated Redis cluster with automatic failover, and I'd make sure the application can tolerate cache misses without falling over" is enough.
+
+## Mistake 4: Not Discussing Trade-offs
+
+Asserting design choices without acknowledging the alternatives signals shallow depth. "I'll use a NoSQL database" means nothing without "because our access pattern is always by primary key and we need horizontal write scalability — the trade-off is that we lose the ability to do complex multi-table queries, which is acceptable for this use case."
+
+Interviewers are not looking for the right answer. They are looking for evidence that you understand why each option exists, what problem it solves, and what it costs. Every experienced engineer has encountered situations where the "obvious" choice had unexpected costs, and compensated by always asking "what am I giving up?" If you demonstrate that you ask that question automatically, the interviewer trusts that you will make sound decisions in production.
+
+The formula for discussing trade-offs is straightforward: "I would choose X for Y reason, with the trade-off that Z." Apply it to every significant design decision — your database choice, your consistency model, your caching strategy, your API style. Not every choice requires a five-minute discussion, but every choice should have a brief justification that names the alternative.
+
+## Mistake 5: Silence
+
+Thinking in silence is invisible to the interviewer. If you spend 45 seconds looking at the whiteboard with your marker uncapped, the interviewer cannot tell whether you are on the verge of a brilliant insight or completely stuck. From their perspective, silence looks like being stuck.
+
+The remedy is simple: narrate your thinking in real time. "I'm deciding between a pull-based and push-based fan-out model for the timeline. Pull is simpler to implement — the client requests tweets from the accounts it follows when it opens the app — but it requires fetching from potentially thousands of following relationships per request. Push means precomputing timelines on write, which is faster for reads but expensive for users with millions of followers." You are thinking out loud. The interviewer is watching you reason through a hard problem. That is exactly what they want to see.
+
+Narrating also helps you. Articulating a thought often clarifies it. A half-formed idea in your head becomes clearer when you have to express it as a sentence.
+
+If you are genuinely stuck, say so explicitly and ask for help: "I'm not sure what the right approach is for cache invalidation in this case — is there a particular direction you'd like me to explore?" This is far better than silence. It shows self-awareness, honesty, and collaborative communication — all valued professional traits.
+
+## Mistake 6: Over-Engineering
+
+Adding unnecessary complexity is as harmful as missing necessary complexity. A candidate who reaches for Kubernetes orchestration, a machine learning ranking model, a blockchain-based audit log, and a distributed saga pattern for a system that will serve 500 users is signaling that they optimize for architectural impressiveness over solving the actual problem.
+
+Over-engineering has real costs in production: more infrastructure to operate, more failure modes to manage, more code to maintain, more dependencies to upgrade. The rule of thumb is YAGNI — You Aren't Gonna Need It. A solution that is slightly simpler and slightly less "impressive" but actually fits the requirements is a better solution than one that is architecturally elaborate but solves a problem you do not have.
+
+In an interview context, over-engineering also wastes time. A candidate who spends ten minutes designing a custom distributed consensus algorithm for a problem that a single Postgres instance would solve has ten minutes less for the parts of the design that actually matter. Interviewers are evaluating your judgment about what to build, not just your technical knowledge. Proposing straightforward solutions for straightforward problems demonstrates that judgment.
+
+## Bonus Tips for Interview Readiness
+
+Beyond avoiding these six mistakes, there are a few practices that separate polished candidates from the rest:
+
+**Practice drawing quickly.** In an in-person interview on a whiteboard or in a virtual interview on a shared canvas, the ability to draw a clear, legible system diagram quickly matters. Practice drawing your boxes, arrows, and labels until it is fast and habitual. A clean diagram that the interviewer can follow in real time makes your design much easier to evaluate.
+
+**Go deep on three to five systems.** Instead of having shallow knowledge of many systems, develop genuine depth on a handful. Know how a URL shortener works end-to-end, including the edge cases. Know how a real-time chat application handles message delivery and ordering at scale. Know how a distributed rate limiter works. Deep familiarity with a few real systems gives you a vocabulary of patterns you can recombine for any novel problem.
+
+**Read real engineering blogs.** The Uber Engineering blog, Discord's engineering blog, and the Netflix Tech Blog are all public and free. They describe real problems at real scale and how they were solved. Reading a blog post about how Discord scaled from 100,000 to 1,000,000 concurrent users teaches you more about the actual costs and trade-offs of system design decisions than any textbook case study. The patterns, the failure modes, the surprising bottlenecks — these are all valuable interview material, and they are written by the engineers who lived through them.
