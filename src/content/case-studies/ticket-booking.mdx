@@ -9,12 +9,12 @@ isCaseStudy: true
 problemStatement: "Design a ticket booking system like Ticketmaster. Users should be able to browse events, select seats, and purchase tickets — with no double-booking."
 interviewTips:
   - "Double-booking prevention is the central technical challenge — spend time here"
-  - "Redis SETNX (atomic) is better than DB locking for high concurrency"
+  - "Redis SET NX EX (atomic) is better than DB locking for high concurrency"
   - "A virtual waiting room prevents server overload during flash sales"
   - "Payment must be idempotent — retrying a payment shouldn't double-charge"
   - "TTL on seat holds prevents abandoned holds blocking inventory indefinitely"
 takeaways:
-  - "Atomic operations (Redis SETNX) prevent race conditions more efficiently than DB locks at scale"
+  - "Atomic operations (Redis SET NX EX) prevent race conditions more efficiently than DB locks at scale"
   - "Seat holds with TTL balance user experience (time to pay) with inventory availability"
   - "A virtual waiting room serializes demand during flash sales without overloading the system"
   - "Idempotent payment processing is non-negotiable — network failures happen"
@@ -111,16 +111,17 @@ COMMIT;
 
 The `FOR UPDATE` lock means only one transaction can read and modify this row at a time. Other transactions block until the lock is released. This guarantees correctness but creates a serialization bottleneck: at 100,000 concurrent booking attempts, every transaction blocks every other, and throughput collapses.
 
-**Atomic Redis SETNX (recommended)**: use Redis as a distributed lock store. `SETNX` (set-if-not-exists) is an atomic operation — it sets a key only if it does not already exist, in a single atomic step with no race window:
+**Atomic Redis SET NX EX (recommended)**: use Redis as a distributed lock store. The modern `SET` command with `NX` (set-if-not-exists) and `EX` (expiry in seconds) flags performs both operations in a single atomic step:
 
 ```
-SETNX seat_hold:{seat_id} {user_id}
-EXPIRE seat_hold:{seat_id} 600   -- 10 minute TTL
+SET seat_hold:{seat_id} {user_id} NX EX 600
 ```
 
-If `SETNX` returns 1 (key was set), the hold succeeded — this user has exclusive control of the seat for 10 minutes. If `SETNX` returns 0 (key already existed), someone else holds the seat — return an error immediately without touching the database.
+This is genuinely atomic: the hold and the 10-minute TTL are set together in one command. Using the older two-command form — `SETNX` followed by a separate `EXPIRE` — is not atomic: if the process crashes between the two commands, the key exists with no TTL and the seat is locked forever (a deadlock). The single-command form eliminates that failure window.
 
-Redis processes commands in a single thread, so `SETNX` is inherently atomic. Under 100,000 concurrent requests, only one `SETNX` returns 1; all others return 0 instantly. There is no blocking, no queueing — failed requests get an immediate response. This dramatically outperforms database-level locking for high-concurrency seat booking.
+If `SET ... NX` returns `OK` (key was set), the hold succeeded — this user has exclusive control of the seat for 10 minutes. If it returns `nil` (key already existed), someone else holds the seat — return an error immediately without touching the database.
+
+Redis processes commands in a single thread, so the `SET NX EX` operation is inherently atomic. Under 100,000 concurrent requests, only one call returns `OK`; all others return `nil` instantly. There is no blocking, no queueing — failed requests get an immediate response. This dramatically outperforms database-level locking for high-concurrency seat booking.
 
 The database is still the source of truth: after a successful `SETNX`, write the hold to the `seats` table as the durable record. Redis is the concurrency guard; the database is the persistent state.
 
