@@ -1,0 +1,101 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #FAFAF8;
+  --color-bg-card: #FFFFFF;
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #6B7280;
+  --color-accent: #4F46E5;
+  --color-accent-light: #EEF2FF;
+  --color-accent-hover: #4338CA;
+  --color-success: #16A34A;
+  --color-success-light: #DCFCE7;
+  --color-warning: #D97706;
+  --color-border: #E5E7EB;
+  --font-family-sans: 'Inter', system-ui, sans-serif;
+  --font-family-mono: 'JetBrains Mono', Consolas, monospace;
+  --width-sidebar: 260px;
+  --max-width-content: 720px;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: #FAFAF8;
+    color: #1A1A1A;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  code, pre, kbd {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .sidebar-link {
+    @apply flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150;
+    color: var(--color-text-secondary);
+  }
+  .sidebar-link:hover {
+    background-color: var(--color-accent-light);
+    color: var(--color-accent);
+  }
+  .sidebar-link.active {
+    background-color: var(--color-accent-light);
+    color: var(--color-accent);
+    font-weight: 500;
+  }
+  .sidebar-link.completed::after {
+    content: '✓';
+    margin-left: auto;
+    color: var(--color-success);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .topic-prose h2 {
+    @apply text-xl font-semibold mt-10 mb-4 pb-2;
+    color: var(--color-text-primary);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .topic-prose h3 {
+    @apply text-lg font-semibold mt-6 mb-3;
+    color: var(--color-text-primary);
+  }
+  .topic-prose p {
+    @apply leading-7 mb-4;
+    color: var(--color-text-primary);
+  }
+  .topic-prose ul {
+    @apply list-disc list-inside space-y-2 mb-4;
+    color: var(--color-text-primary);
+  }
+  .topic-prose ol {
+    @apply list-decimal list-inside space-y-2 mb-4;
+    color: var(--color-text-primary);
+  }
+  .topic-prose code {
+    @apply px-1.5 py-0.5 rounded text-sm font-mono;
+    background-color: #f3f4f6;
+    color: var(--color-accent);
+  }
+  .topic-prose pre {
+    @apply p-4 rounded-xl overflow-x-auto mb-6 text-sm;
+    background-color: #111827;
+    color: #f3f4f6;
+  }
+  .topic-prose blockquote {
+    @apply pl-4 italic mb-4;
+    border-left: 4px solid var(--color-accent);
+    color: var(--color-text-secondary);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
