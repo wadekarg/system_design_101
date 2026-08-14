@@ -120,8 +120,9 @@ for (const sec of SECTIONS) {
     });
   });
 
-  // Highlight active link
-  const currentPath = window.location.pathname;
+  // Highlight active link. Normalize away any trailing slash so it matches
+  // the slash-free data-topic-link values (GitHub Pages adds a trailing slash).
+  const currentPath = window.location.pathname.replace(/\/$/, '');
   document.querySelectorAll('[data-topic-link]').forEach((a) => {
     if (a.getAttribute('data-topic-link') === currentPath) {
       a.classList.add('active');

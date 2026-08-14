@@ -69,7 +69,9 @@ const {
   const observer = new IntersectionObserver(
     (entries) => {
       if (entries[0].isIntersecting) {
-        const path = window.location.pathname;
+        // Normalize away any trailing slash so the key matches the sidebar's
+        // link value (GitHub Pages 301-redirects directory URLs to add a slash).
+        const path = window.location.pathname.replace(/\/$/, '');
         const key = `sd101_complete_${path}`;
         localStorage.setItem(key, '1');
         document.dispatchEvent(new CustomEvent('topic-complete', { detail: { path } }));
