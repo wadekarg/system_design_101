@@ -1,0 +1,94 @@
+---
+title: "Distributed Transactions"
+description: "Maintain data consistency across multiple services and databases without the luxury of a single ACID transaction — understanding 2PC, Saga, and idempotency for correctness at scale."
+order: 8
+difficulty: Advanced
+readTime: "13 min read"
+diagram: DistributedTransactionsDiagram
+relatedTopics:
+  - patterns/event-driven-architecture
+  - patterns/leader-election
+  - building-blocks/message-queues
+takeaways:
+  - "Two-phase commit provides strong consistency but blocks on coordinator failure"
+  - "The Saga pattern replaces distributed transactions with local transactions + compensating actions"
+  - "Idempotency keys make retries safe — essential for any distributed system"
+  - "In microservices, Saga + eventual consistency is almost always preferred over 2PC"
+---
+
+## The Problem
+
+Within a single database, a transaction gives you ACID guarantees: Atomicity (all operations succeed or none do), Consistency (the database moves from one valid state to another), Isolation (concurrent transactions do not interfere with each other), and Durability (committed changes survive crashes). When you debit $100 from one account and credit $100 to another, the database guarantees that either both operations happen or neither does. Partial updates — money leaving one account without arriving in another — are impossible.
+
+In a microservice architecture, this guarantee evaporates. An e-commerce checkout might need to: charge the customer's payment method (in the Payment Service), deduct items from inventory (in the Inventory Service), create an order record (in the Order Service), and send a confirmation email (in the Notification Service). Each service has its own database. There is no single transaction that spans all four operations.
+
+What happens if the payment succeeds but the inventory update fails? You have charged the customer for items you cannot fulfill. What if the order record is created but the email fails? The customer never knows their order was placed. The challenge of distributed transactions is achieving the atomicity guarantee across multiple independent databases and services — ensuring either all steps complete successfully or the system is left in a consistent state that can be recovered.
+
+## Two-Phase Commit (2PC)
+
+Two-phase commit (2PC) is the classical protocol for achieving atomic commitment across multiple participants. It uses a central coordinator that drives all participants through two phases.
+
+**Phase 1 — Prepare:** The coordinator sends a `PREPARE` message to all participants. Each participant executes the transaction locally up to the point of commitment (acquiring locks, writing to a temporary area) and responds with either `VOTE-COMMIT` (I am ready to commit) or `VOTE-ABORT` (something went wrong, I cannot commit). Each participant that votes commit must guarantee it can commit even if it receives the commit instruction much later — it has durable state in its transaction log.
+
+**Phase 2 — Commit or Abort:** If all participants voted commit, the coordinator sends `COMMIT` to all participants. Each participant finalizes the transaction and releases its locks. If any participant voted abort (or did not respond within the timeout), the coordinator sends `ABORT` to all participants, and each rolls back its local changes.
+
+2PC provides strong atomicity: if the coordinator sends `COMMIT`, every participant will commit (or retry until it does). The protocol is widely implemented in databases — XA transactions in MySQL, PostgreSQL, and Oracle use 2PC for cross-database operations.
+
+The critical weakness of 2PC is its blocking behavior under coordinator failure. If the coordinator crashes after sending `PREPARE` but before sending `COMMIT` or `ABORT`, participants that voted `COMMIT` are stuck. They have acquired locks and cannot release them (they might need to commit). They cannot unilaterally abort (they voted to commit). They must wait for the coordinator to recover and complete the protocol. During this window, all locked resources are blocked, preventing other transactions from proceeding. In high-throughput systems, this blocking can cause severe degradation.
+
+For microservices, 2PC has additional problems beyond blocking: microservices do not typically expose XA-compatible transaction interfaces, and requiring all services to participate in a distributed lock protocol creates tight coupling that undermines the independence microservices are meant to provide.
+
+## Three-Phase Commit
+
+Three-phase commit (3PC) attempts to solve 2PC's blocking problem by adding an intermediate pre-commit phase between Prepare and Commit. After all participants vote to commit, the coordinator sends a `PRE-COMMIT` message. Participants acknowledge pre-commit, and only then does the coordinator send the final `COMMIT`.
+
+The key insight is that if a participant has received `PRE-COMMIT`, it knows that all other participants have voted to commit. If the coordinator then fails, participants can safely commit on their own after a timeout, because they know no participant voted abort (a participant only receives `PRE-COMMIT` after all votes were `YES`). This breaks the blocking deadlock of 2PC.
+
+However, 3PC assumes a synchronous network — it does not work correctly under network partitions. If the network splits, participants on different sides of the partition may make conflicting decisions (some commit, some abort), producing inconsistency. In real-world networks where partitions are a fact of life, 3PC's correctness guarantee does not hold. For this reason, 3PC is rarely used in production systems, which tend to prefer the Saga pattern for its more practical trade-offs.
+
+## Saga Pattern
+
+The Saga pattern abandons the goal of atomic distributed transactions in favor of a sequence of local transactions, each of which can be undone by a corresponding compensating transaction. A saga is a set of steps; each step is a local ACID transaction in one service. If any step fails, the saga executes compensating transactions in reverse order to undo the effects of the steps that succeeded.
+
+For the e-commerce checkout example, the saga might be:
+1. `CreateOrder` in the Order Service → produces order ID
+2. `ReserveInventory` in the Inventory Service → reduces available stock
+3. `ProcessPayment` in the Payment Service → charges the customer
+4. `ConfirmOrder` in the Order Service → marks the order confirmed
+5. `SendConfirmation` in the Notification Service → sends email
+
+If step 3 (ProcessPayment) fails, the compensating transactions are:
+- `ReleaseInventory` in the Inventory Service → restores reserved stock
+- `CancelOrder` in the Order Service → marks the order cancelled
+
+The compensating transactions must be designed carefully to be correct in all failure scenarios. They must be **idempotent** (safe to apply multiple times) because the saga may retry a compensating transaction if delivery is uncertain. They must also acknowledge that the world may have changed between the original action and its compensation — an email notification cannot truly be "un-sent," so the compensation might be to send a cancellation email instead.
+
+Sagas can be implemented with choreography (each service reacts to events and publishes its own) or orchestration (a central saga orchestrator sends commands and receives responses). Orchestration is often preferred for complex sagas because the workflow is defined in one place, making it easy to visualize and debug. See the Event-Driven Architecture topic for a detailed discussion of choreography vs. orchestration.
+
+The trade-off of Sagas versus 2PC is consistency model: 2PC provides strong consistency (all-or-nothing atomicity visible to concurrent readers), while Sagas provide eventual consistency (intermediate states may be briefly visible). For many business operations — order processing, user registration, payment workflows — brief intermediate states are acceptable, and the operational simplicity and resilience of Sagas make them the right choice.
+
+## Idempotency
+
+Idempotency is a property of an operation such that applying it multiple times produces the same result as applying it once. In distributed systems, idempotency is not a nice-to-have — it is a fundamental requirement for correctness.
+
+In any network-based system, requests can be retried. A client sends a request, the network drops the response (not the request), and the client retries. The server has already processed the original request — processing it again must not cause a duplicate effect. Without idempotency, a customer who retries a failed payment request might be charged twice. An order that retried due to a timeout might be created twice.
+
+The standard mechanism for ensuring idempotency is an **idempotency key**: a unique identifier that the client generates and includes with the request (typically in a header like `Idempotency-Key: <uuid>`). The server records the key and the outcome the first time it processes the request. If the same key arrives again, the server returns the stored outcome without re-executing the operation. After a reasonable TTL (24 hours is common), idempotency keys expire.
+
+Implementing idempotency correctly requires atomic check-and-store: the server must check for the existing key and store the new key in a single atomic operation to avoid race conditions where two concurrent retries both find the key absent and both proceed to execute. A database transaction, a Redis `SET NX` (set if not exists) operation, or a compare-and-swap at the storage layer can provide this atomicity.
+
+Idempotency keys make compensating transactions in Sagas safe to retry. They make at-least-once message delivery from brokers safe to act on. They are the mechanism that makes distributed systems tolerate the inevitable network unreliability without sacrificing correctness.
+
+## Choosing an Approach
+
+The decision between 2PC, Saga, and simpler alternatives depends on your consistency requirements, operational constraints, and team capabilities.
+
+**Use 2PC** when: you control both database systems directly (not third-party APIs), the databases natively support XA transactions, and you need strong consistency with no visible intermediate states. Database-level 2PC for transactions that span two directly connected databases is a reasonable choice in some architectures.
+
+**Use Saga** when: you are building microservices where each service owns its own database, you need to compose operations across services or third-party APIs, and eventual consistency is acceptable for the business operation. Saga is the correct pattern for the vast majority of distributed transaction scenarios in modern systems.
+
+**Avoid 2PC across microservices**: the tight coupling, blocking behavior, and lack of XA support in most microservice frameworks make 2PC impractical across service boundaries. This is the consensus position in the microservices community, articulated by practitioners like Sam Newman and Chris Richardson.
+
+**Always add idempotency** regardless of which coordination pattern you use. Idempotency is foundational — it is what makes the system correct in the presence of retries, which are inevitable in any production environment. No Saga, no eventual consistency model, and no distributed system design is complete without idempotency at the operation level.
+
+The deeper lesson is that distributed transactions are fundamentally harder than single-database transactions. The correct response is not to simulate single-database atomicity across services (that way lies blocking protocols and tight coupling), but to design your business operations to tolerate the failure modes of distributed systems — through compensating actions, idempotency, and acceptance of eventual rather than strict consistency.

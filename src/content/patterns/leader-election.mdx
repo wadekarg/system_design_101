@@ -1,0 +1,68 @@
+---
+title: "Leader Election"
+description: "Ensure exactly one node in a distributed cluster acts as the coordinator at any time, using consensus algorithms to survive failures without split-brain."
+order: 4
+difficulty: Advanced
+readTime: "11 min read"
+diagram: LeaderElectionDiagram
+relatedTopics:
+  - building-blocks/database-replication
+  - patterns/distributed-transactions
+takeaways:
+  - "Leader election ensures only one node acts as coordinator at a time"
+  - "Raft is the practical choice for modern systems — readable, correct, well-implemented"
+  - "Heartbeats detect leader failure; fencing tokens prevent split-brain"
+  - "etcd and ZooKeeper handle leader election so you don't have to implement it yourself"
+---
+
+## Why Leader Election
+
+Many distributed systems benefit from having a single node that acts as coordinator. The leader might be responsible for serializing writes to avoid conflicts, scheduling background jobs so they run exactly once, distributing work to other nodes, or making decisions that require a global view of the cluster. Without a designated leader, multiple nodes might concurrently attempt the same operation, producing inconsistent results or duplicated work.
+
+The challenge is maintaining the invariant that exactly one leader exists at all times, even as nodes crash, network partitions appear, and new nodes join. If the leader fails silently, the cluster needs to detect the failure and elect a replacement without human intervention. If the network splits, nodes on each side must not independently declare themselves leader — a situation called split-brain — because two concurrent leaders can corrupt shared state.
+
+Leader election is fundamentally a consensus problem: getting a distributed set of processes to agree on a single value (which node is the leader) despite failures and message delays. The algorithms that solve this problem elegantly are some of the most important in distributed systems.
+
+## Bully Algorithm
+
+The Bully algorithm is one of the oldest and simplest election algorithms. Each node is assigned a unique numeric ID, and the node with the highest ID becomes the leader. The name comes from the fact that a high-ID node "bullies" lower-ID nodes into stepping down.
+
+When a node detects that the leader has failed (by timing out on heartbeats), it initiates an election by broadcasting an ELECTION message to all nodes with higher IDs. If any higher-ID node responds with OK, the initiating node steps down and waits. If no higher-ID node responds within a timeout, the initiating node declares itself the new leader and broadcasts a COORDINATOR message to all other nodes.
+
+The algorithm is easy to understand and implement, but it has a critical weakness: it requires `O(n²)` messages in the worst case, making it impractical for large clusters. It also assumes that nodes with higher IDs are more capable leaders, which may not reflect real-world conditions (a high-ID node might be the oldest or slowest machine in the cluster).
+
+## Ring Algorithm
+
+The Ring algorithm assumes nodes are arranged in a logical ring, where each node knows its neighbors. When a node detects a leader failure, it sends an ELECTION message containing its own ID clockwise around the ring. Each node that receives the ELECTION message compares its own ID with the one in the message: if its own ID is higher, it replaces the ID in the message with its own before forwarding it; if the received ID is higher, it forwards the message unchanged.
+
+When the message completes a full circuit and returns to the node that sent it, that node finds its own ID in the message — because the ID in the message is the highest seen by any node on the ring. The originating node declares itself the leader and broadcasts a COORDINATOR message.
+
+The Ring algorithm uses fewer messages than Bully in the average case (`O(n)` per election), but it can be slow if the ring is large or if messages must travel many hops. It also assumes the ring topology is reliable, which may not hold during network partitions.
+
+## Paxos and Raft
+
+Both Bully and Ring were designed for controlled environments with reliable message delivery. Real distributed systems need stronger guarantees: they must be correct in the presence of arbitrary failures, message delays, and network partitions.
+
+**Paxos** is a family of consensus protocols originally described by Leslie Lamport. It is provably correct under the assumption that nodes fail by stopping (not by sending incorrect messages) and that messages may be lost or delayed but are never corrupted. Paxos operates in rounds of prepare/promise/accept/acknowledge exchanges. It is famously difficult to understand and even harder to implement correctly — Google's Chubby lock service and its leader election are based on Paxos, and even Google's implementation team described the process as extremely challenging.
+
+**Raft** was designed explicitly as an understandable alternative to Paxos. Raft's paper (Ongaro and Ousterhout, 2014) partitions the consensus problem into three relatively independent subproblems: leader election, log replication, and safety. Raft elects leaders through a randomized timeout mechanism: each follower starts a random election timeout; when it expires without hearing from a leader, the follower becomes a candidate and requests votes from other nodes. A candidate that receives votes from a majority of nodes becomes the new leader. Randomized timeouts dramatically reduce the chance of simultaneous elections (split votes), which would require another round.
+
+Raft's log replication guarantees that the leader's log is the authoritative source of truth, and followers only apply entries that have been committed by a majority. This provides strong consistency: any entry acknowledged by the leader is guaranteed to be present in all future leaders. Raft is implemented by etcd (used by Kubernetes), CockroachDB, TiDB, and many other production systems. Its readability and the availability of well-tested libraries (like `hashicorp/raft`) make it the practical choice for teams implementing consensus from scratch.
+
+## ZooKeeper and etcd
+
+For most teams, implementing a consensus algorithm from scratch is the wrong choice. ZooKeeper and etcd provide battle-tested leader election primitives as a service.
+
+**ZooKeeper** stores data in a tree of nodes called znodes, similar to a filesystem. The key feature for leader election is the ephemeral znode: a znode that automatically disappears when the client that created it disconnects (due to failure, network partition, or timeout). Leader election is implemented by having all candidates try to create the same ephemeral znode. ZooKeeper guarantees that exactly one client succeeds; the winner is the leader. All other clients watch the znode and are notified when it disappears, triggering a new election round. ZooKeeper has been a production workhorse at companies like LinkedIn, Yahoo, and Twitter for over a decade.
+
+**etcd** is a newer distributed key-value store built on Raft. It provides leader election through its built-in distributed locking mechanism — acquiring a lease on a key. The elected leader holds the lease and must renew it periodically. If the leader fails to renew (because it crashed or lost network connectivity), the lease expires and another node can acquire it. Kubernetes uses etcd for all cluster state, and etcd's leader election is used by the Kubernetes control plane to ensure that only one instance of each controller component runs at a time.
+
+## Heartbeats and Fencing
+
+Two mechanisms are essential for making leader election robust in practice.
+
+**Heartbeats** are periodic messages sent by the leader to all followers to signal that it is still alive and functioning. Followers start an election if they do not receive a heartbeat within a configured timeout. The heartbeat timeout must be tuned carefully: too short and transient network delays cause spurious elections; too long and the cluster takes a long time to recover from a genuine leader failure. A typical production setting is a heartbeat interval of 150-500ms with an election timeout of 3-10 heartbeat periods.
+
+**Fencing tokens** (also called epoch numbers) solve the zombie problem. Imagine a leader that pauses — perhaps due to a long GC pause, a process freeze, or a temporary network partition — long enough that followers time out and elect a new leader. Then the old leader resumes, unaware that it has been replaced. If both the old and new leaders are simultaneously issuing writes to shared storage, data corruption follows.
+
+A fencing token is a monotonically increasing number assigned to each elected leader (epoch 1, epoch 2, epoch 3...). The new leader gets epoch 2. Any storage system or service that receives commands from a node with epoch 1 after epoch 2 has been issued rejects them. The old zombie leader's commands are simply ignored. The implementation requires that the storage system check and enforce the fencing token, but it is a simple comparison: reject any command with a token older than the last seen token. This mechanism, described by Martin Kleppmann in "Designing Data-Intensive Applications," is the correct and practical solution to the zombie leader problem.

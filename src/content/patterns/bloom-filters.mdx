@@ -1,0 +1,69 @@
+---
+title: "Bloom Filters"
+description: "A space-efficient probabilistic data structure that can definitively say an element is absent from a set, while trading a small chance of false positives to save orders of magnitude in memory."
+order: 3
+difficulty: Advanced
+readTime: "10 min read"
+diagram: BloomFilterDiagram
+relatedTopics:
+  - building-blocks/caching
+  - patterns/rate-limiting
+takeaways:
+  - "Bloom filters say 'definitely no' or 'probably yes' — never false negatives"
+  - "Use them to avoid expensive lookups for data you know doesn't exist"
+  - "False positive rate is tunable by adjusting bit array size and hash count"
+  - "Bloom filters use dramatically less memory than a hash set for the same data"
+---
+
+## The Problem
+
+Many systems need to answer a simple membership question at high speed: has this URL ever been visited? Has this username already been taken? Is this IP address on our blocklist? The naive approach is to store every known element in a hash set and check membership. For small datasets, this works fine. For datasets containing billions of elements — billions of crawled URLs, billions of registered email addresses, billions of seen events — the hash set consumes dozens or hundreds of gigabytes of RAM. That is often prohibitively expensive.
+
+The insight behind Bloom filters is that for many use cases, you do not need a guaranteed answer. You need to quickly and cheaply rule out the clearly negative cases, reserving the expensive lookup (database query, network call) for items that might actually be present. If you can answer "definitely not in the set" for 99% of queries using a fraction of the memory, the rare false positive that requires a fallback lookup is an acceptable trade-off.
+
+## How Bloom Filters Work
+
+A Bloom filter consists of two components: a **bit array** of `m` bits (initially all set to 0) and **k independent hash functions**, each of which maps an arbitrary input to one of the `m` positions in the bit array.
+
+**Adding an element:** To add an element to the filter, pass it through each of the `k` hash functions to obtain `k` positions in the bit array. Set all `k` of those bit positions to 1. The element itself is never stored — only the pattern of set bits represents its presence.
+
+**Querying an element:** To test whether an element is in the set, pass it through the same `k` hash functions to obtain the same `k` positions. If all `k` bits at those positions are 1, the element is probably in the set. If any of the `k` bits is 0, the element is definitely not in the set.
+
+The "definitely not" case is guaranteed: if an element was ever added, all `k` of its bits were set to 1. If you query for the element and any bit is 0, it could not have been added. No false negatives are possible.
+
+The "probably yes" case involves uncertainty: it is possible that the `k` bits for an element were all set to 1 by a combination of other elements that happened to hash to those same positions. This is a false positive — the filter reports the element as probably present when it never was. The probability of a false positive increases as the filter fills up (more bits are set to 1) and decreases as you use more bits or more hash functions.
+
+## False Positives
+
+The false positive rate is not an accident — it is a precisely tunable parameter. Given `n` elements expected to be inserted into the filter and a desired false positive rate `p`, you can compute the optimal bit array size `m` and number of hash functions `k`:
+
+```
+m = -(n * ln(p)) / (ln(2))^2
+k = (m / n) * ln(2)
+```
+
+For example, to store 1 billion elements with a 1% false positive rate, you need approximately 9.59 bits per element, or about 1.2 GB total. A hash set storing the same billion 64-bit integers would require at minimum 8 GB just for the integer values, plus hash table overhead. The Bloom filter achieves roughly 10x memory reduction at the cost of a 1% false positive rate.
+
+Increasing the bit array size reduces the false positive rate at the cost of more memory. Decreasing it saves memory at the cost of more false positives. For most practical applications, a false positive rate between 0.1% and 5% represents a good trade-off — almost all queries that are negative are answered instantly and cheaply, while the small fraction of false positives simply incur the cost of a fallback lookup.
+
+Importantly, Bloom filters are **append-only**: you can add elements but not remove them. Removing an element would require clearing its `k` bits, but those bits may be shared with other elements that hash to the same positions. Clearing them would produce false negatives, violating the filter's fundamental guarantee. The counting Bloom filter variant addresses this by replacing each bit with a small integer counter, allowing decrements and thus removals, at the cost of additional memory per cell.
+
+## Space and Time Complexity
+
+A Bloom filter's space cost is `O(m)` bits regardless of how many elements are stored, where `m` is the bit array size chosen at construction time. For practical deployments, this is typically 8-16 bits per element, which translates to gigabytes for billion-element sets versus tens of gigabytes for equivalent hash sets.
+
+The time cost of both insertion and lookup is `O(k)` — proportional to the number of hash functions. Since `k` is typically in the range of 5-15 (the optimal value converges around `k = 7` for common false positive targets), all operations are effectively constant time, with no dependency on the number of elements stored. This makes Bloom filters extremely fast in practice.
+
+## Use Cases
+
+Bloom filters appear in production systems wherever the cost of a false negative is unacceptable but false positives are tolerable, and where the set being tested is too large for an exact in-memory representation.
+
+**URL shorteners and web crawlers** use Bloom filters to avoid re-crawling or re-processing URLs they have already seen. Google's web crawler famously used a Bloom filter to track billions of visited URLs. The filter sits in front of the URL frontier: if the filter says "definitely not seen," the URL is enqueued for crawling. If it says "probably seen," the crawler verifies against its persistent store before skipping — a rare operation.
+
+**Distributed cache layers** use Bloom filters to avoid cache stampedes for keys that definitely do not exist. Before querying the cache, check the Bloom filter. If the filter says "definitely not," skip the cache lookup entirely and go to the database (or return empty). This is especially valuable for protecting against cache penetration attacks where a bad actor queries keys that do not exist in either cache or database, bypassing the cache completely.
+
+**Database engines** such as Apache Cassandra and RocksDB use Bloom filters per SSTable (sorted string table) to avoid unnecessary disk reads. When reading a key, Cassandra first checks the Bloom filter for each SSTable level. If the filter says the key is definitely not in that SSTable, Cassandra skips the disk read. This dramatically reduces read amplification in LSM-tree storage engines.
+
+**Spam filters and network security** use Bloom filters to check incoming items (email sender addresses, IP addresses, domains) against large blocklists that would be impractical to store in memory in full. A false positive means a legitimate sender is briefly delayed (triggering a full lookup); a false negative would mean a known spammer gets through — but that is precisely what Bloom filters prevent.
+
+**Blockchain and cryptocurrency** systems use Bloom filters for simplified payment verification. Bitcoin's SPV clients send Bloom filters to full nodes to specify which transactions they are interested in. Full nodes filter the transaction stream using the provided filter, sending only potentially matching transactions to the lightweight client.

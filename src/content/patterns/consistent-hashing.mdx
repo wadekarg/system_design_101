@@ -1,0 +1,69 @@
+---
+title: "Consistent Hashing"
+description: "Distribute data across a dynamic set of nodes so that adding or removing a node remaps the minimum possible number of keys — the foundation of scalable distributed caches and databases."
+order: 2
+difficulty: Advanced
+readTime: "13 min read"
+diagram: ConsistentHashingDiagram
+relatedTopics:
+  - building-blocks/database-sharding
+  - building-blocks/caching
+  - building-blocks/load-balancing
+takeaways:
+  - "Consistent hashing minimizes cache invalidation when servers are added or removed"
+  - "Virtual nodes solve the uneven distribution problem of basic consistent hashing"
+  - "DynamoDB and Cassandra use consistent hashing for data partitioning"
+  - "The key insight: only ~K/n keys need remapping when a server joins/leaves"
+---
+
+## The Problem with Simple Hashing
+
+Imagine you have a distributed cache built from three servers. A natural approach to distributing keys across them is modular hashing: assign a key to the server at index `hash(key) % n`, where `n` is the number of servers. For three servers, key "user:123" might hash to 47, and `47 % 3 = 2`, so it lives on server 2. This works perfectly when the number of servers is fixed.
+
+The problem appears the moment you scale. If you add a fourth server, `n` changes from 3 to 4. Now "user:123" maps to `47 % 4 = 3` — a completely different server. Across a cache with millions of keys, changing `n` by one means nearly every key maps to a different server than it did before. On the next request for "user:123", the cache misses on server 3 and falls back to the database. If this happens to millions of keys simultaneously, you have effectively invalidated your entire cache — causing a thundering herd that can overwhelm your database.
+
+Removing a server causes the same problem in reverse. The requirement, then, is a hashing scheme where adding or removing a node remaps only the minimum necessary fraction of keys — ideally `K/n` keys, where `K` is the total number of keys and `n` is the number of nodes.
+
+## Consistent Hashing Explained
+
+Consistent hashing solves this by mapping both servers and keys to the same abstract circular address space, called a **hash ring**. Imagine the ring as a circle with positions numbered from 0 to `2^32 - 1` (or any sufficiently large integer). You hash each server's identifier (IP address or hostname) to a position on the ring using the same hash function you will use for keys.
+
+To determine which server owns a given key, you hash the key to its position on the ring and then walk clockwise around the ring until you encounter the first server. That server is responsible for the key. Since both servers and keys are hashed into the same space, the assignment is deterministic: the same key always maps to the same server as long as no servers are added or removed.
+
+When you add a new server, it takes a position on the ring between two existing servers. Only keys that fall in the arc between the new server and its predecessor now map to the new server. Keys outside that arc are unaffected. When you remove a server, only its keys need to be remapped — they move to the next server clockwise. In both cases, approximately `K/n` keys are remapped rather than all of them.
+
+This is the fundamental insight: by arranging servers and keys on a ring, you ensure that the addition or removal of any one node affects only its immediate neighbors on the ring, not the entire key space.
+
+## Virtual Nodes
+
+Basic consistent hashing has a significant weakness: uneven distribution. With only a handful of real servers, the ring may be divided into arcs of very different sizes, depending on where each server's hash lands. One server might own 40% of the ring and another only 5%, leading to severely imbalanced load.
+
+Virtual nodes (vnodes) solve this. Instead of placing each physical server at a single position on the ring, you place it at many positions — perhaps 100 to 300 virtual nodes per physical server. Each virtual node is typically hashed as `server_id:vnode_index` (for example, `server-A:0`, `server-A:1`, ..., `server-A:150`). The physical server owns the union of all its virtual node arcs on the ring.
+
+With hundreds of virtual nodes per server, the positions are spread around the ring much more uniformly by the law of large numbers. When a server is added, its virtual nodes take small slices of load from many other servers, not just one. When a server is removed, its load is distributed back to many other servers proportionally. This results in much better load balance in practice.
+
+Virtual nodes also make it easy to weight servers differently. A server with twice the RAM or CPU capacity can be assigned twice as many virtual nodes, and it will naturally receive approximately twice the share of keys.
+
+## Benefits
+
+The benefits of consistent hashing become most apparent in three scenarios: scaling events, failure handling, and heterogeneous hardware.
+
+During a **scaling event** — adding capacity to handle growing traffic — a system using modular hashing must re-shard its entire dataset. With consistent hashing, only the fraction of keys that fall into the new server's ring segment need to be migrated. For a cache, you simply let those keys naturally repopulate from the source of truth on cache miss. For a persistent data store, you migrate just the affected keys rather than the whole dataset.
+
+When a **server fails**, only that server's segment of the ring is affected. The next server clockwise automatically absorbs the failed server's keys. For a cache, this means a temporary increase in cache misses while those keys repopulate — not a total cache flush. For a data store with replicas, the replicas can take over immediately.
+
+For **heterogeneous hardware**, virtual nodes make it trivial to assign load proportional to each machine's capacity, without any changes to the client-side routing logic. The routing algorithm remains the same; you simply assign more virtual nodes to more powerful servers.
+
+## Real-World Use
+
+Consistent hashing is not an academic curiosity — it is the foundation of several of the most widely deployed distributed systems in the world.
+
+**Amazon DynamoDB** uses consistent hashing to partition data across its storage nodes. Each item is assigned to a partition based on a hash of its partition key, and the virtual node system ensures that partition responsibilities are distributed evenly and that rebalancing after node changes is minimal.
+
+**Apache Cassandra** uses a ring-based consistent hashing architecture at its core. Each node in a Cassandra cluster is assigned a range of the token ring, and data is replicated to multiple consecutive nodes on the ring for fault tolerance. The replication factor determines how many copies of each key exist. When nodes join or leave the cluster, only the affected token ranges are moved.
+
+**Redis Cluster** uses a variant of consistent hashing called hash slots. The key space is divided into 16,384 hash slots, and each node is responsible for a subset of slots. When nodes are added or removed, slots (and the data in them) are migrated accordingly — a practical engineering simplification of the full consistent hashing model.
+
+**Content Delivery Networks** use consistent hashing to route requests for a given URL to a consistent edge cache server. Because the same URL always maps to the same cache node (as long as the cluster size is stable), cached copies accumulate efficiently rather than being scattered across all nodes.
+
+The common thread across all these systems is the need to distribute a large keyspace across a changing cluster without expensive global reshuffling. Consistent hashing is the elegant answer to that problem.

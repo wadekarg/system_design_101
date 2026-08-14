@@ -1,0 +1,75 @@
+---
+title: "Circuit Breaker"
+description: "Prevent cascading failures in microservice architectures by automatically failing fast when a dependency is unhealthy, allowing both the caller and the failing service time to recover."
+order: 5
+difficulty: Intermediate
+readTime: "9 min read"
+diagram: CircuitBreakerDiagram
+relatedTopics:
+  - patterns/api-gateway
+  - patterns/rate-limiting
+takeaways:
+  - "Circuit breakers stop cascading failures by failing fast when a dependency is unhealthy"
+  - "The three states (Closed/Open/Half-Open) implement an automatic recovery protocol"
+  - "Always have a fallback strategy for what to return when the circuit is open"
+  - "Bulkhead pattern complements circuit breakers by isolating resource pools"
+---
+
+## Cascading Failures
+
+In a microservice architecture, services depend on other services. Service A calls Service B, which calls Service C. When everything is healthy, requests flow smoothly. When Service C starts responding slowly — due to a slow database query, a memory leak, or simple overload — the consequences ripple upstream.
+
+Service B waits for C's slow responses, holding threads or connections open. As B's thread pool fills with requests waiting on C, new requests to B also start queuing. B's response time climbs. Now Service A is waiting on B, its own thread pool fills, and soon A is failing too. From the outside, a degradation in one deep service has brought down the entire call chain — a cascading failure.
+
+The fundamental problem is that slow is worse than down. If Service C were simply offline, B would fail immediately and free its threads. But a slow C holds threads open while providing no useful work. The more traffic flowing through the system, the faster the failure cascades. Cascading failures are one of the most common causes of large-scale outages in microservice systems.
+
+## The Circuit Breaker Pattern
+
+The circuit breaker pattern, named after electrical circuit breakers that protect against current overloads, wraps calls to an external service with logic that can automatically halt requests when the dependency is failing. The key behavior is fail fast: instead of waiting for a downstream service that has been observed to be unhealthy, reject the request immediately with an error. This frees up threads, reduces latency for callers, and gives the failing downstream service space to recover rather than being continuously bombarded.
+
+The circuit breaker sits between your code and the downstream dependency. Your code makes calls through the breaker, not directly to the dependency. The breaker maintains its own state, records outcomes of calls (success or failure), and decides whether to pass calls through or reject them immediately.
+
+## States: Closed, Open, Half-Open
+
+The circuit breaker operates as a finite state machine with three states.
+
+**Closed** is the normal operating state. Requests pass through to the downstream service. The circuit breaker counts successes and failures. When the failure rate (or failure count within a time window) crosses a configured threshold — for example, more than 50% failures in the last 10 seconds — the breaker trips and transitions to Open.
+
+**Open** is the tripped state. All requests to the downstream service are immediately rejected without even attempting the call. Instead of waiting for a timeout, callers receive an error in microseconds. This immediately relieves pressure on both the caller and the failing downstream service. The circuit breaker starts an internal timer (typically 30-60 seconds). When the timer expires, the breaker transitions to Half-Open.
+
+**Half-Open** is the probing state. The breaker allows a small number of probe requests through to the downstream service — perhaps one request, or a small fraction. If the probe succeeds, the downstream service has likely recovered. The breaker resets its counters and transitions back to Closed. If the probe fails, the service is still unhealthy, and the breaker immediately transitions back to Open, restarting the timer.
+
+This three-state protocol implements automatic recovery without human intervention. The system self-heals as the downstream service recovers, with the probe mechanism providing a controlled way to test recovery without flooding a fragile service with full traffic.
+
+## Thresholds and Fallbacks
+
+A circuit breaker is only as useful as its configuration. Thresholds that are too sensitive cause spurious trips during brief spikes; thresholds that are too lenient allow extended cascading failures. Common configuration parameters include: a minimum number of calls in a time window before the breaker can trip (to avoid tripping on the first failure), a failure rate threshold (percentage, not absolute count), the time window for measuring failures, the duration of the Open state before transitioning to Half-Open, and the number of probe requests in Half-Open.
+
+Equally important as the breaker itself is the fallback strategy — what to do when the circuit is open. Simply returning an error to the end user is rarely the right answer. Better fallback strategies include:
+
+- Return a cached version of the last successful response (stale data is often better than no data)
+- Return a default or empty response (show "recommendations unavailable" rather than failing the page)
+- Return data from an alternative, less authoritative source
+- Queue the operation for later execution when the service recovers
+
+The fallback response should be designed into the system from the start, not bolted on as an afterthought. For critical dependencies where no meaningful fallback exists, failing fast with a clear error is still better than timing out — it preserves the caller's thread and provides fast feedback.
+
+## Libraries
+
+Implementing circuit breakers correctly from scratch requires handling concurrency, atomic state transitions, and timing logic carefully. Established libraries handle these details and are battle-tested in production.
+
+**Resilience4j** (Java) is the modern standard for circuit breaking in the JVM ecosystem. It is lightweight, functional in style, and integrates with Spring Boot. It supports not just circuit breakers but also rate limiters, retry logic, bulkheads, and time limiters — the full suite of resilience patterns.
+
+**Hystrix** (Java) was Netflix's original circuit breaker library and pioneered the adoption of the pattern in the microservices era. Netflix open-sourced it and it became widely used, but it has been placed in maintenance mode in favor of Resilience4j.
+
+**Polly** (.NET) provides circuit breakers, retries, timeouts, and bulkheads for C# applications. It is the standard resilience library in the .NET ecosystem, with a fluent policy composition API.
+
+For teams using service meshes like Istio or Linkerd, circuit breaking can be configured at the infrastructure level without any changes to application code. The sidecar proxy intercepts all service-to-service calls and applies circuit breaking rules defined in the mesh configuration. This provides resilience uniformly across all services regardless of language or framework.
+
+## Bulkhead Pattern
+
+The bulkhead pattern is a complementary resilience technique, named after the watertight compartments in a ship's hull. If one compartment floods, the bulkhead prevents the water from spreading to adjacent compartments, keeping the ship afloat. In software, a bulkhead isolates failure to a specific resource pool so that exhaustion of that pool does not affect other operations.
+
+The most common implementation of the bulkhead pattern is separate thread pools for different downstream dependencies. Instead of having all outbound calls share a single application thread pool, you create a dedicated thread pool of, say, 10 threads for calls to Service C. If Service C becomes slow and those 10 threads are all tied up waiting, new requests to Service C receive a rejection error immediately — but calls to Services A and B, which use separate thread pools, are completely unaffected.
+
+Without bulkheads, a slow downstream service can exhaust your entire application's thread pool, making every operation fail regardless of which service they depend on. Bulkheads bound the blast radius of a dependency failure. Combined with circuit breakers — which add temporal intelligence (trip and recover) to bulkheads' spatial isolation (separate resource pools) — they form the foundation of a resilient microservice architecture.
