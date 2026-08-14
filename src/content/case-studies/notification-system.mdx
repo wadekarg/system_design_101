@@ -1,0 +1,168 @@
+---
+title: "Notification System"
+description: "Design a notification system that delivers push alerts, emails, and SMS to millions of users — covering message queues, third-party integrations, rate limiting, and retry reliability."
+order: 7
+difficulty: Intermediate
+readTime: "15 min read"
+diagram: NotificationDiagram
+isCaseStudy: true
+problemStatement: "Design a notification system that can send push notifications, emails, and SMS to millions of users with low latency."
+interviewTips:
+  - "Separate the notification trigger from delivery — use a queue in between"
+  - "Each delivery channel (push/email/SMS) should have its own worker pool"
+  - "User preference management is often overlooked — mention opt-outs"
+  - "Retry logic with exponential backoff is essential for 3rd-party API failures"
+  - "Idempotency prevents sending duplicate notifications on retry"
+takeaways:
+  - "Decouple event triggers from notification delivery with a message queue"
+  - "Each channel (push/email/SMS) scales independently with dedicated workers"
+  - "Rate limiting protects users from notification spam"
+  - "Idempotency keys prevent duplicate notifications when retrying failed deliveries"
+relatedTopics: []
+---
+
+## Requirements
+
+Scope the notification system before designing it. Real systems send dozens of types of notifications; the interview focuses on the delivery infrastructure.
+
+**Functional requirements:**
+- Support three notification channels: mobile push (iOS and Android), email, and SMS.
+- Accept notification requests from internal services (event sources) — e.g., a payment service triggers a "payment confirmed" notification.
+- Respect per-user opt-out preferences: users can disable individual channels.
+- Deliver notifications with low latency — push and SMS should arrive within seconds.
+- Maintain an audit log of every notification sent.
+
+**Non-functional requirements:**
+- **Scale**: 10 million push notifications per day, 1 million emails per day, 100,000 SMS per day.
+- **Reliability**: a failed delivery must be retried — notifications must not be silently dropped.
+- **Idempotency**: if a triggering event fires twice (e.g., due to a network retry), users must not receive duplicate notifications.
+- **High availability**: the notification path should be available even if upstream services are degraded.
+
+At these volumes (roughly 115 push/sec sustained), a simple synchronous API call from the event source to a third-party SDK would work — but it would couple notification delivery failures to the upstream service. The right approach decouples them with a message queue.
+
+## Types of Notifications
+
+Each delivery channel has a different third-party integration with different latency and cost profiles.
+
+**Push notifications** reach mobile apps even when the app is in the background. iOS uses **Apple Push Notification Service (APNs)** and Android uses **Firebase Cloud Messaging (FCM)**. Both require the backend to hold a device token (issued by the OS when the user installs the app and grants notification permission). The flow:
+1. Mobile app registers with APNs/FCM → receives a device token.
+2. Device token is stored server-side, associated with the user's account.
+3. Backend sends a push request to APNs/FCM with the device token and notification payload.
+4. APNs/FCM delivers to the device.
+
+Device tokens expire and change when users reinstall apps. Handle token invalidation errors from APNs/FCM by removing stale tokens from your database.
+
+**Email** is the highest-volume but lowest-urgency channel. Sending billions of emails reliably requires specialized infrastructure (IP warm-up, DKIM/SPF signing, bounce handling) that is infeasible to build in-house. Third-party providers like **SendGrid** and **Amazon SES** handle this. The backend sends an API call; the provider handles deliverability, unsubscribe management, and bounce tracking.
+
+**SMS** is the most reliable channel for urgent messages (two-factor authentication, account alerts) because it does not require internet connectivity — only a cellular signal. **Twilio** is the dominant provider. SMS is also the most expensive channel, so volume is naturally lowest.
+
+## High-Level Architecture
+
+The key principle is **decoupling**: the event source should not care how notifications are delivered. It fires an event and moves on. The notification system handles everything downstream.
+
+The flow:
+1. An **event source** (payment service, order service, marketing system) calls the Notification Service API with a notification request: `user_id`, `event_type`, `template_key`, and `template_params`.
+2. The **Notification Service** validates the request, looks up the user's preferences (which channels are enabled), resolves the notification template, and enriches the payload with user data.
+3. The Notification Service publishes one message per channel to the appropriate **message queue** (push queue, email queue, SMS queue).
+4. **Channel workers** consume from each queue and call the relevant third-party API (APNs, FCM, SendGrid, SES, Twilio).
+5. Workers write the delivery result (success or failure with error code) to the **notification log**.
+
+By routing through queues, the system is resilient to third-party API slowness. If SendGrid is slow, emails pile up in the queue and drain when SendGrid recovers — without affecting push notification delivery or blocking the event source.
+
+## Message Queue Design
+
+Separate queues per channel are essential. If push and email shared a queue and email workers were slow (due to a SendGrid outage), slow email delivery would starve push notifications of workers. With dedicated queues:
+- The push queue drains at the push worker's rate, independently of email.
+- Queue depth per channel is an operational metric: a growing email queue signals a SendGrid problem.
+
+**Queue technology**: Kafka or SQS are both suitable. Kafka provides strong durability, replay capability (important for debugging missed notifications), and very high throughput. SQS is simpler to operate. For most teams, SQS with dead-letter queues (DLQ) for failed messages is the right starting point.
+
+**Message schema**:
+
+```json
+{
+  "notification_id": "uuid-v4",
+  "user_id": 12345,
+  "channel": "push",
+  "device_token": "abc...xyz",
+  "title": "Your order shipped!",
+  "body": "Your order #4892 has shipped and will arrive tomorrow.",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+The `notification_id` is the idempotency key. If the same event fires twice and produces two messages with the same `notification_id`, the worker checks the notification log before sending — if an entry already exists for that ID with status `sent`, it skips the delivery.
+
+## Third-Party Integrations
+
+Workers call third-party APIs synchronously. The integration patterns:
+
+**APNs (iOS push)**: use Apple's HTTP/2 API. Each request delivers one notification to one device token. Responses are synchronous: a 200 means delivered to APNs (not necessarily to the device — APNs handles the last mile). A 410 means the token is invalid — remove it from the database immediately.
+
+**FCM (Android push)**: similar to APNs but Google's API supports batch sends (up to 500 tokens per request), which is useful for broadcast notifications. Like APNs, handle `INVALID_REGISTRATION` errors by removing stale tokens.
+
+**SendGrid / SES (email)**: REST API calls. Both support bulk sends and dynamic templates (HTML email templating is done by the provider, not your code). Always set up SPF, DKIM, and DMARC records for your sending domain — without these, email lands in spam.
+
+**Twilio (SMS)**: simple REST API. Twilio charges per message segment (160 characters for ASCII, 70 for Unicode). Keep SMS payloads short; truncate if necessary.
+
+All third-party integrations should be wrapped in a **provider abstraction layer**. If you want to switch from SendGrid to SES, you replace one provider implementation, not all the callers.
+
+## Rate Limiting
+
+Without rate limiting, a poorly written marketing campaign can send a user 50 notifications in one day. That destroys trust and drives uninstalls.
+
+Implement rate limiting at the Notification Service layer, before messages are enqueued:
+
+- **Per-user, per-day limit**: no more than 10 notifications per user per day across all channels.
+- **Per-user, per-channel limit**: no more than 3 push notifications per hour (prevents rapid-fire alerts).
+- **Global burst limit**: cap the total notification send rate to protect third-party API quotas.
+
+Rate limit state is tracked in Redis with an atomic increment and TTL:
+
+```
+Key: rate_limit:{user_id}:{channel}:{date}
+Value: current count
+TTL: 86400 seconds (resets daily)
+```
+
+When a notification request arrives, the Notification Service calls `INCR` on the rate limit key. If the returned value exceeds the limit, the notification is dropped (or queued for next-day delivery, depending on priority).
+
+## Reliability
+
+A notification system that silently drops messages on third-party errors is not production-ready. Reliability comes from three mechanisms:
+
+**Retry with exponential backoff**: when a worker fails to deliver a notification (network timeout, 5xx from the provider), it does not immediately retry — it re-enqueues the message with an exponentially increasing delay (1s, 2s, 4s, 8s, ..., up to a maximum of 30 minutes). This prevents a struggling third-party API from being hammered by instant retries. After a configurable maximum retry count (e.g., 5 attempts), the message is moved to a **dead-letter queue** for manual inspection.
+
+**Idempotency**: before calling the third-party API, the worker writes a "pending" record to the notification log with the `notification_id`. Before writing, it checks if the `notification_id` already has a "sent" entry — if so, skip. This two-phase write ensures that even if a worker crashes after calling the API but before updating the log, the next attempt will detect the duplicate and not re-send.
+
+**Dead-letter queues**: messages that fail after all retries land in a DLQ. An alert fires to the on-call engineer, who can inspect the failed messages, identify systemic issues (e.g., a batch of invalid tokens), and replay or discard as appropriate.
+
+**Notification log schema**:
+
+```sql
+CREATE TABLE notification_log (
+  notification_id  UUID PRIMARY KEY,
+  user_id          BIGINT NOT NULL,
+  channel          VARCHAR(10),
+  status           VARCHAR(20),  -- pending, sent, failed, deduplicated
+  provider_response TEXT,
+  created_at       TIMESTAMP,
+  updated_at       TIMESTAMP
+);
+```
+
+The log serves double duty: idempotency store and audit trail. When a user reports "I didn't get my shipping notification," you can query the log to see exactly what was sent, when, and what the provider responded.
+
+**User preference table**:
+
+```sql
+CREATE TABLE user_notification_preferences (
+  user_id       BIGINT NOT NULL,
+  channel       VARCHAR(10) NOT NULL,
+  event_type    VARCHAR(50) NOT NULL,
+  is_enabled    BOOLEAN DEFAULT TRUE,
+  PRIMARY KEY (user_id, channel, event_type)
+);
+```
+
+Before enqueuing, the Notification Service checks this table. If the user has opted out of push notifications for "marketing" events, that notification is discarded rather than enqueued. Respecting opt-outs is both a legal requirement (CAN-SPAM, GDPR) and essential for user trust.

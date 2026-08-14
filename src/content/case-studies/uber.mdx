@@ -1,0 +1,170 @@
+---
+title: "Uber — Real-Time Ride Matching"
+description: "Design Uber's ride-matching core: geospatial indexes with QuadTrees and S2 cells, high-frequency driver location streaming via Kafka, WebSocket trip tracking, and surge pricing."
+order: 9
+difficulty: Advanced
+readTime: "18 min read"
+diagram: UberDiagram
+isCaseStudy: true
+problemStatement: "Design Uber's core ride-matching system. Riders should be able to request rides and be matched with nearby available drivers in real-time."
+interviewTips:
+  - "Geospatial indexing is the key technical challenge — explain QuadTree or S2 cells"
+  - "Location updates are high-frequency write stream — Kafka handles this well"
+  - "The matching algorithm (nearest driver by ETA, not just distance) differentiates answers"
+  - "WebSockets are required for real-time trip tracking"
+  - "Surge pricing is a business feature — mention it shows system design awareness"
+takeaways:
+  - "Geospatial indexes (QuadTree, S2 cells) are essential for efficient proximity queries"
+  - "Driver location is a high-frequency write stream — treat it differently from trip data"
+  - "Matching by ETA (routing + distance) produces better outcomes than simple proximity"
+  - "WebSockets enable real-time driver location updates during a trip"
+relatedTopics: []
+---
+
+## Requirements
+
+Uber's product covers booking, matching, navigation, payments, and driver ratings. The interview focuses on the core matching flow: a rider requests a ride and a nearby driver accepts it.
+
+**Functional requirements:**
+- Drivers continuously broadcast their GPS location to the system.
+- A rider can request a ride, specifying a pickup location.
+- The system finds available nearby drivers and offers the trip to the best candidate.
+- A driver can accept or decline the offer. If declined, the next best driver is offered.
+- During the trip, the rider can see the driver's real-time location on a map.
+- Trip ends when the driver marks it complete; payment is processed.
+
+**Non-functional requirements:**
+- **Scale**: 100 million rides per day globally. Millions of active drivers sending GPS every 4 seconds.
+- **Matching latency**: a rider should be matched within 10–15 seconds of requesting.
+- **Location accuracy**: driver location should be no more than 4 seconds stale during matching; sub-second staleness during an active trip.
+- **High availability**: the matching system must remain available during database failures — riders waiting for a car cannot wait for a database recovery.
+- **Consistency**: no two riders should be matched to the same driver simultaneously.
+
+## Location Service
+
+The Location Service is a pure write-optimized service. Its job: ingest the continuous stream of GPS updates from millions of driver apps and maintain a queryable geospatial index.
+
+**Write load**: 1 million active drivers × 1 update every 4 seconds = 250,000 location updates per second. This is a high-frequency write stream. Traditional relational databases are a poor fit — at 250k writes/second sustained, a single PostgreSQL instance would be overwhelmed. Two patterns work at this scale:
+
+1. **Kafka as the write buffer**: driver apps publish location updates to a Kafka topic (`driver-locations`). Kafka absorbs bursty write traffic and decouples the driver app from downstream consumers. Consumers read from Kafka and update the geospatial index.
+
+2. **In-memory geospatial index**: the current location of every active driver is stored in memory. An on-disk database holds historical location trails for audit/analytics, but matching uses the in-memory index exclusively for sub-millisecond read performance.
+
+**Location update payload**:
+
+```json
+{
+  "driver_id": "d-12345",
+  "latitude": 37.7749,
+  "longitude": -122.4194,
+  "heading": 270,
+  "speed": 25,
+  "timestamp": 1705320000
+}
+```
+
+The in-memory store is keyed by `driver_id`. Each entry holds the latest GPS coordinates, status (available, on-trip, offline), and a timestamp for staleness checking. A driver with a location update older than 30 seconds is treated as offline and removed from the index.
+
+## Matching Service
+
+When a rider requests a ride, the Matching Service executes a multi-step process:
+
+1. **Find candidate drivers**: query the Location Service's geospatial index for all available drivers within a 5 km radius of the rider's pickup location. Limit to top 10 candidates.
+
+2. **Rank by ETA**: for each candidate driver, compute the estimated time of arrival (ETA) to the pickup location using a routing engine. ETA accounts for real-time traffic, road network, and turn restrictions — pure Euclidean distance misranks drivers on the other side of a river or highway.
+
+3. **Offer the trip**: send a push notification to the top-ranked available driver with trip details. Start a 15-second timer.
+
+4. **Handle acceptance or decline**: if the driver accepts, create a trip record and notify the rider. If the driver declines or the timer expires, move to the next candidate.
+
+5. **No driver found**: if all candidates decline or none are within range, notify the rider and re-attempt every 30 seconds.
+
+**Driver status locking**: when the Matching Service offers a trip to a driver, that driver's status must be atomically changed from "available" to "offered". Otherwise, two concurrent Matching Service instances (serving two different riders) could both offer the same driver simultaneously. Use Redis `SETNX` (set-if-not-exists) as an atomic lock:
+
+```
+Key:   driver_lock:{driver_id}
+Value: {rider_id, offer_timestamp}
+TTL:   20 seconds (auto-release if driver never responds)
+```
+
+If `SETNX` returns 0 (the key already exists), the driver is already being offered to another rider — skip to the next candidate.
+
+## Trip Management
+
+Once a driver accepts, a **trip record** is created in the database:
+
+```sql
+CREATE TABLE trips (
+  trip_id     UUID PRIMARY KEY,
+  rider_id    BIGINT NOT NULL,
+  driver_id   BIGINT NOT NULL,
+  status      VARCHAR(20) NOT NULL,  -- matched, en_route, in_progress, completed, cancelled
+  pickup_lat  DECIMAL(9,6),
+  pickup_lng  DECIMAL(9,6),
+  dropoff_lat DECIMAL(9,6),
+  dropoff_lng DECIMAL(9,6),
+  price_estimate DECIMAL(10,2),
+  final_price DECIMAL(10,2),
+  started_at  TIMESTAMP,
+  completed_at TIMESTAMP
+);
+```
+
+The `status` field drives the state machine. Transitions:
+- `matched` → `en_route`: driver starts heading to pickup.
+- `en_route` → `in_progress`: driver arrives and starts the trip.
+- `in_progress` → `completed`: driver marks trip done. Payment is triggered.
+- Any state → `cancelled`: rider or driver cancels.
+
+**Payment** is processed asynchronously after `completed`. The Matching Service publishes a `trip_completed` event to Kafka. A Payment Service consumes this event and charges the rider's saved payment method via a payment gateway (Stripe). Decoupling payment from trip completion means a payment failure does not block the driver from picking up the next ride.
+
+## Real-Time Communication
+
+During a trip, the rider needs to see the driver's car moving on a map in near real-time. HTTP polling ("check every second if the driver has moved") is wasteful and introduces 1-second latency. **WebSockets** are the correct protocol.
+
+**WebSocket architecture**:
+- When a rider's app loads the trip-tracking screen, it establishes a WebSocket connection to a **WebSocket Gateway** server.
+- The WebSocket Gateway subscribes to a Kafka topic (`active-trip-locations`) filtered by the rider's `trip_id`.
+- The Location Service publishes driver GPS updates for drivers on active trips to `active-trip-locations` in addition to the standard location stream.
+- The WebSocket Gateway pushes incoming location updates to the connected rider's app in real-time, typically achieving sub-second latency.
+
+The WebSocket connection is maintained for the trip duration (typically 15–40 minutes). WebSocket Gateway servers are stateful (each maintains open connections), so the API gateway uses sticky routing — a rider always connects to the same Gateway server for the duration of their trip.
+
+**Driver app updates**: the driver also needs turn-by-turn navigation. The driver app either uses the device's native Maps app (Google Maps, Apple Maps) or Uber's own navigation, which also connects via WebSocket to receive updated routing instructions as real-time traffic changes the optimal route.
+
+## Surge Pricing
+
+Surge pricing (dynamic pricing) is not just a business feature — it is a system design mechanism for load balancing supply and demand.
+
+**The problem**: in a specific geographic area during a specific time window, demand (riders requesting) significantly exceeds supply (available drivers). Without price changes, all riders queue up, wait times grow unbounded, and drivers have no incentive to reposition to the high-demand area.
+
+**The mechanism**:
+1. Divide the city into geographic zones (using the same geospatial grid as the location index).
+2. Continuously compute the supply-demand ratio per zone: `available_drivers / ride_requests_per_minute`.
+3. When the ratio drops below a threshold (e.g., 0.5 — one driver for every two requesting riders), apply a surge multiplier.
+4. Multiplier tiers: 1.0× (no surge), 1.5×, 2.0×, 2.5×, 3.0×.
+
+**Implementation**: a Surge Pricing Service reads driver location and ride request events from Kafka, aggregates by zone over a 5-minute sliding window, computes the ratio, and writes surge multipliers to Redis (`surge:{zone_id}`). The Matching Service reads the multiplier from Redis when computing price estimates. Surge multipliers are updated every 30 seconds — fast enough to respond to demand spikes, slow enough to avoid rapid fluctuations that confuse riders.
+
+**Effect on supply**: higher prices increase driver earnings per ride, incentivizing off-duty drivers to come online and nearby drivers to reposition toward the high-demand zone. This is the self-balancing mechanism — surge pricing naturally equilibrates supply and demand without central coordination.
+
+## Scale
+
+At 100 million rides per day, the average QPS is:
+
+```
+Ride requests = 100,000,000 / 86,400 ≈ 1,157 per second
+Driver location updates = 1,000,000 drivers × (1/4 Hz) = 250,000 per second
+```
+
+The location update stream at 250k/sec is the highest-throughput component. Kafka handles this comfortably — a well-tuned Kafka cluster supports millions of messages per second. The geospatial index update consumers read from Kafka and update the in-memory index; the index is partitioned across a cluster of Location Service instances.
+
+**Geospatial indexing in depth**: the choice of geospatial index determines how efficiently "find drivers within 5 km" queries run.
+
+**QuadTree**: recursively subdivides a 2D map into four quadrants until each leaf cell contains fewer than a threshold number of drivers (e.g., 100). To find nearby drivers, traverse the QuadTree to find all leaf cells that overlap a 5 km circle around the rider, then retrieve all drivers in those cells. QuadTrees adapt well to uneven driver density — dense city centers get finely subdivided, sparse suburbs have coarser cells.
+
+**Google S2 cells**: Google's S2 library divides the Earth's surface into a hierarchy of cells using a space-filling curve (Hilbert curve). S2 has the property that nearby cells have numerically similar cell IDs, which enables efficient range queries in a standard database index. To find nearby drivers: compute the rider's S2 cell ID, find all driver entries in the database with S2 cell IDs in the neighboring cells at the appropriate resolution level.
+
+Both approaches are valid; the interview expects you to name one and explain the concept. In practice, Uber uses H3 (Uber's own hierarchical hexagonal grid), which provides more uniform cell areas than QuadTrees and better edge behavior than S2.
+
+**Database selection**: trip data goes to a sharded relational database (MySQL sharded by `trip_id` or `rider_id`). The geospatial index is in-memory (Redis with geospatial commands, or a custom in-process index). Kafka is the backbone for location update streams. Cassandra or BigQuery stores the historical location trails for analytics, ML model training (ETA prediction, surge pricing models), and fraud detection.

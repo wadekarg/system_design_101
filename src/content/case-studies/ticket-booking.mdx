@@ -1,0 +1,215 @@
+---
+title: "Ticket Booking System"
+description: "Design a Ticketmaster-style ticket booking platform: seat reservation with TTL holds, Redis SETNX race-condition prevention, idempotent payment flows, and a virtual waiting room for flash sales."
+order: 10
+difficulty: Intermediate
+readTime: "15 min read"
+diagram: TicketBookingDiagram
+isCaseStudy: true
+problemStatement: "Design a ticket booking system like Ticketmaster. Users should be able to browse events, select seats, and purchase tickets — with no double-booking."
+interviewTips:
+  - "Double-booking prevention is the central technical challenge — spend time here"
+  - "Redis SETNX (atomic) is better than DB locking for high concurrency"
+  - "A virtual waiting room prevents server overload during flash sales"
+  - "Payment must be idempotent — retrying a payment shouldn't double-charge"
+  - "TTL on seat holds prevents abandoned holds blocking inventory indefinitely"
+takeaways:
+  - "Atomic operations (Redis SETNX) prevent race conditions more efficiently than DB locks at scale"
+  - "Seat holds with TTL balance user experience (time to pay) with inventory availability"
+  - "A virtual waiting room serializes demand during flash sales without overloading the system"
+  - "Idempotent payment processing is non-negotiable — network failures happen"
+relatedTopics: []
+---
+
+## Requirements
+
+Ticket booking systems have one hard constraint that dominates the design: no seat can ever be sold to two people simultaneously. Everything else — browsing, seat maps, payment — is standard e-commerce. The double-booking problem is what makes this system interesting.
+
+**Functional requirements:**
+- Users can browse events and view a real-time seat availability map.
+- Users select a seat and temporarily hold it while they complete checkout.
+- A held seat that is not purchased within 10 minutes is automatically released.
+- Users complete payment and receive a booking confirmation.
+- A seat that is fully paid cannot be sold again.
+
+**Non-functional requirements:**
+- **Scale**: 1 million events, each with up to 100,000 seats.
+- **Concurrency**: flash sales for popular events see up to 100,000 concurrent users competing for the same seats.
+- **Consistency**: double-booking must be impossible, even under extreme concurrent load.
+- **Availability**: the booking flow should remain available during partial infrastructure failures.
+- **Payment idempotency**: retrying a failed payment request must not result in a double charge.
+
+## Scale Estimation
+
+Under normal conditions, the load is manageable:
+
+```
+Assume 10,000 events active simultaneously
+Peak seat views: 10,000 events × 1,000 concurrent viewers = 10M concurrent users browsing
+Booking QPS: assume 1% of viewers attempt to book simultaneously = 100,000 booking attempts/sec during flash sales
+```
+
+The seat inventory check and the hold creation are the critical operations. At 100,000 concurrent booking attempts per second for a single popular event (a Taylor Swift tour, a World Cup final), the design must handle contention without collapsing.
+
+## Seat Reservation
+
+The seat reservation flow has three distinct phases: **browse**, **hold**, and **confirm**.
+
+**Browse**: the user views the seat map. The seat map shows seat status: available (green), held (grey), or sold (red). Held seats are temporarily unavailable but will return to available if the hold expires. The seat map is read-heavy — thousands of users viewing simultaneously. Serve it from a cache (Redis or CDN) refreshed every few seconds.
+
+**Hold**: the user clicks a seat. The system atomically marks it as "held" by this user for 10 minutes. If the hold succeeds, the user proceeds to payment. If the hold fails (someone else held the seat in the milliseconds between the user seeing "available" and clicking), the user is shown an error and prompted to choose another seat.
+
+**Confirm**: within the 10-minute window, the user submits payment. On successful payment, the seat status changes from "held" to "sold". On payment failure, the seat remains held (so the user can retry) until the TTL expires.
+
+**Seat status table**:
+
+```sql
+CREATE TABLE seats (
+  seat_id     UUID PRIMARY KEY,
+  event_id    BIGINT NOT NULL REFERENCES events(id),
+  row_label   VARCHAR(5),
+  seat_number INT,
+  status      VARCHAR(10) NOT NULL DEFAULT 'available',  -- available, held, sold
+  held_by     BIGINT,           -- user_id of the holder
+  held_until  TIMESTAMP,        -- TTL: when the hold expires
+  booking_id  UUID              -- set when sold
+);
+```
+
+The `held_until` column implements TTL at the application layer. A background job runs every minute and executes:
+
+```sql
+UPDATE seats
+SET status = 'available', held_by = NULL, held_until = NULL
+WHERE status = 'held' AND held_until < NOW();
+```
+
+This releases expired holds automatically.
+
+## Race Condition Prevention
+
+With 100,000 users simultaneously attempting to book the same seat, the race condition is:
+
+1. User A reads seat 42: status = "available".
+2. User B reads seat 42: status = "available".
+3. User A writes: UPDATE seat 42 SET status = "held" WHERE status = "available".
+4. User B writes: UPDATE seat 42 SET status = "held" WHERE status = "available".
+5. Both writes succeed — seat 42 is now "held" by two users simultaneously.
+
+Step 5 is the double-booking bug. Two solutions exist:
+
+**Pessimistic locking (SELECT FOR UPDATE)**: the booking transaction acquires a row-level exclusive lock before reading:
+
+```sql
+BEGIN;
+SELECT * FROM seats WHERE seat_id = 42 FOR UPDATE;
+-- If status = 'available', update it. Otherwise, rollback.
+UPDATE seats SET status = 'held', held_by = 99, held_until = NOW() + INTERVAL '10 minutes'
+WHERE seat_id = 42 AND status = 'available';
+COMMIT;
+```
+
+The `FOR UPDATE` lock means only one transaction can read and modify this row at a time. Other transactions block until the lock is released. This guarantees correctness but creates a serialization bottleneck: at 100,000 concurrent booking attempts, every transaction blocks every other, and throughput collapses.
+
+**Atomic Redis SETNX (recommended)**: use Redis as a distributed lock store. `SETNX` (set-if-not-exists) is an atomic operation — it sets a key only if it does not already exist, in a single atomic step with no race window:
+
+```
+SETNX seat_hold:{seat_id} {user_id}
+EXPIRE seat_hold:{seat_id} 600   -- 10 minute TTL
+```
+
+If `SETNX` returns 1 (key was set), the hold succeeded — this user has exclusive control of the seat for 10 minutes. If `SETNX` returns 0 (key already existed), someone else holds the seat — return an error immediately without touching the database.
+
+Redis processes commands in a single thread, so `SETNX` is inherently atomic. Under 100,000 concurrent requests, only one `SETNX` returns 1; all others return 0 instantly. There is no blocking, no queueing — failed requests get an immediate response. This dramatically outperforms database-level locking for high-concurrency seat booking.
+
+The database is still the source of truth: after a successful `SETNX`, write the hold to the `seats` table as the durable record. Redis is the concurrency guard; the database is the persistent state.
+
+## Payment Flow
+
+Payment is the step most likely to fail with ambiguous outcomes. A network timeout after the payment gateway receives the charge request but before it returns a response leaves the system not knowing whether the charge succeeded. If it retried, the user could be double-charged. This is why **idempotency** is non-negotiable.
+
+**Idempotency key pattern**: before initiating payment, generate a unique idempotency key tied to this booking attempt (e.g., `pay_{booking_id}_{attempt_number}`). Include this key in the payment gateway API request. If the same key is submitted twice, the gateway returns the result of the first attempt rather than processing a second charge. Most payment gateways (Stripe, Braintree) support idempotency keys natively.
+
+**Payment flow**:
+1. User submits card details. The browser tokenizes the card via the payment provider's JavaScript SDK (card number never touches your servers).
+2. Your backend calls the payment gateway with: amount, currency, payment token, and idempotency key.
+3. On success: update `seats.status = 'sold'`, create the booking record, send confirmation email, release the Redis lock (or let it expire).
+4. On failure: leave the Redis hold and database hold intact. The user can retry within the remaining TTL. On retry, use the same idempotency key — the gateway returns the original failure, not a new charge.
+5. On timeout (no response within 5 seconds): retry using the same idempotency key. The gateway deduplicates.
+
+**Booking record**:
+
+```sql
+CREATE TABLE bookings (
+  booking_id    UUID PRIMARY KEY,
+  seat_id       UUID NOT NULL REFERENCES seats(seat_id),
+  user_id       BIGINT NOT NULL,
+  event_id      BIGINT NOT NULL,
+  status        VARCHAR(20) NOT NULL,  -- pending, confirmed, cancelled, refunded
+  payment_id    TEXT,                  -- gateway's transaction ID
+  amount_paid   DECIMAL(10,2),
+  booked_at     TIMESTAMP DEFAULT NOW()
+);
+```
+
+## Database Design
+
+The full schema covers events, venues, seats, and bookings:
+
+```sql
+CREATE TABLE events (
+  event_id    BIGINT PRIMARY KEY,
+  name        VARCHAR(255) NOT NULL,
+  venue_id    BIGINT NOT NULL,
+  event_date  TIMESTAMP NOT NULL,
+  description TEXT,
+  status      VARCHAR(20) DEFAULT 'on_sale'
+);
+
+CREATE TABLE venues (
+  venue_id    BIGINT PRIMARY KEY,
+  name        VARCHAR(255),
+  city        VARCHAR(100),
+  capacity    INT
+);
+
+CREATE TABLE seats (
+  seat_id     UUID PRIMARY KEY,
+  event_id    BIGINT NOT NULL,
+  venue_id    BIGINT NOT NULL,
+  section     VARCHAR(10),
+  row_label   VARCHAR(5),
+  seat_number INT,
+  price_tier  VARCHAR(20),
+  price       DECIMAL(10,2),
+  status      VARCHAR(10) DEFAULT 'available',
+  held_by     BIGINT,
+  held_until  TIMESTAMP,
+  booking_id  UUID
+);
+```
+
+Indexes required for performance:
+- `seats(event_id, status)` — querying all available seats for an event.
+- `seats(held_until) WHERE status = 'held'` — the expiry background job.
+- `bookings(user_id)` — user's booking history.
+
+**Database choice**: a relational database (PostgreSQL or MySQL) is correct here because the seat booking flow requires ACID transactions. The seat status transition (available → held → sold) must be atomic and consistent. For very large events (100,000 seats), partition the `seats` table by `event_id` — each event's seat data lives in its own partition for faster scans.
+
+## Handling High-Demand Events
+
+For a blockbuster event (Taylor Swift, a championship final), 100,000 users might attempt to book the moment tickets go on sale. Sending all 100,000 simultaneously to the booking service would overwhelm it — even with Redis SETNX, 100,000 concurrent HTTP connections and database writes tax the infrastructure.
+
+**Virtual waiting room**: instead of forwarding all 100,000 users directly to the booking flow, place them in a virtual queue:
+
+1. When tickets go on sale, users are redirected to a **waiting room page**.
+2. The waiting room assigns each user a queue position (via Kafka or a Redis sorted set ordered by arrival time).
+3. The booking service processes users at a controlled rate — e.g., 500 users per second — pulling from the front of the queue.
+4. Each user's browser polls for their queue position. When they reach the front, they are admitted to the booking flow.
+5. Users are shown an estimated wait time based on their position and the admission rate.
+
+The waiting room serializes demand: instead of 100,000 concurrent users hammering the database simultaneously, the system handles 500 per second in an orderly queue. This is purely a flow-control mechanism — the seat inventory and Redis locks still provide correctness guarantees inside the booking flow.
+
+**Kafka-based waiting room**: when a user arrives at the waiting room, their `user_id` and arrival timestamp are written to a Kafka topic (`waiting-room:{event_id}`). A Waiting Room Service reads from this topic and maintains the ordered queue. It periodically signals the next batch of users that they can proceed, publishing their `user_id` to a `proceed` Kafka topic. The user's browser subscribes (via WebSocket or long-poll) and redirects when it receives the proceed signal.
+
+**Optimistic seat holding**: for very high demand, you can further reduce contention by showing users a "seat selection" page before formally holding the seat in Redis. Users browse the interactive seat map, then click "Hold Seat". The hold only occurs on click — not on view — which means most browsing users do not generate Redis write contention. This mirrors Ticketmaster's actual UX.

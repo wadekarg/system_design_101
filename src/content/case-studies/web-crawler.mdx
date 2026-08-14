@@ -1,0 +1,160 @@
+---
+title: "Web Crawler"
+description: "Design a distributed web crawler that indexes the internet at scale — covering URL frontier design, politeness constraints, deduplication strategies, and petabyte-scale storage."
+order: 6
+difficulty: Advanced
+readTime: "16 min read"
+diagram: WebCrawlerDiagram
+isCaseStudy: true
+problemStatement: "Design a web crawler that can index the entire internet. The system should be able to crawl billions of pages and store their content for search indexing."
+interviewTips:
+  - "Politeness is a first-class concern — interviewers check if you mention robots.txt"
+  - "URL deduplication and content deduplication are different problems"
+  - "Bloom filter for URL dedup saves enormous memory vs a hash set"
+  - "The URL Frontier design (priority queue) differentiates senior-level answers"
+  - "Mention how to handle JavaScript-heavy pages (headless browser)"
+takeaways:
+  - "The URL Frontier is the heart of a crawler — its design determines crawl quality"
+  - "Bloom filters efficiently detect already-visited URLs with minimal memory"
+  - "Politeness controls (crawl delay, robots.txt) are non-negotiable for production crawlers"
+  - "SimHash detects near-duplicate content even if pages differ slightly"
+relatedTopics: []
+---
+
+## Requirements
+
+Before designing any component, clarify what the crawler must do and what constraints it must respect.
+
+**Functional requirements:**
+- Accept a seed list of URLs and discover new links recursively.
+- Download and store HTML content of crawled pages for downstream indexing.
+- Respect the `robots.txt` exclusion standard for every domain.
+- Avoid crawling the same URL twice within a crawl cycle.
+- Detect near-duplicate content to avoid storing redundant pages.
+
+**Non-functional requirements:**
+- **Scale**: crawl 1 billion web pages. Average page size 10 MB (HTML + metadata).
+- **Politeness**: no more than 1 request per second per domain to avoid overloading servers.
+- **Freshness**: the crawler should re-visit pages periodically to detect updates.
+- **Extensibility**: pluggable content parsers — HTML today, PDFs tomorrow.
+- **Fault tolerance**: workers crash; the system must resume without losing progress or recrawling excessively.
+
+The hardest design challenges are not the networking — it is the URL Frontier (what to crawl next and when) and the deduplication pipeline (avoiding redundant work at petabyte scale).
+
+## Components
+
+A production web crawler is a pipeline of cooperating services, not a single loop:
+
+**URL Frontier** is the central scheduler. It is a priority queue that determines which URL to crawl next, enforcing both freshness priority (high-PageRank pages get crawled more often) and politeness constraints (no flooding a single domain).
+
+**Fetcher** is a pool of HTTP workers. Each worker pulls a URL from the Frontier, issues an HTTP GET, follows redirects (up to a bounded depth to prevent redirect loops), and passes the raw HTML to the Parser.
+
+**Parser** extracts two things from raw HTML: (1) the page's textual content, and (2) all anchor tag `href` links. The content goes to the Content Store. The extracted links are normalized and fed into the Dedup Filter before entering the Frontier.
+
+**Dedup Filter** has two jobs: URL deduplication (have we scheduled this URL before?) and content deduplication (have we already stored effectively the same page?). Both run before writing to storage to avoid wasted I/O.
+
+**Content Store** holds the crawled pages. Raw HTML goes to object storage (S3). Metadata — URL, crawl timestamp, HTTP status, content hash, extracted links — goes to a distributed database (Cassandra) for fast querying by the indexing pipeline.
+
+## URL Frontier
+
+The URL Frontier is the most architecturally interesting component. A naive FIFO queue crawls URLs in the order they were discovered, which means a single domain that links internally to thousands of its own pages can flood the queue — violating politeness and wasting capacity on one site.
+
+A production Frontier uses a **two-level queue design**:
+
+**Front queues** are priority queues. Each queue holds URLs at a particular priority level. Priority is assigned based on:
+- **PageRank estimate**: high-authority pages should be crawled more frequently.
+- **Recency**: pages that change often (news sites, social feeds) get higher priority for re-crawl.
+- **Depth**: seed URLs and early discoveries get higher priority than deep internal links.
+
+**Back queues** are per-domain FIFO queues. The Frontier maintains one queue per active domain (e.g., one queue for `en.wikipedia.org`, one for `github.com`). A URL exits the front queue and enters the corresponding domain's back queue. A worker pulling from the back queue waits for the crawl delay to elapse before fetching the next URL for that domain.
+
+This two-level design decouples priority from politeness: you can rank URLs however you like in the front queues, while the back queues guarantee domain-level rate limiting. Each back queue has an associated timer — a worker only picks the next URL from a domain's queue when the timer says it is safe.
+
+For scale, the Frontier state is stored in Redis (active domain queues and timers) backed by a durable store (Cassandra or a message queue like Kafka). In-memory state is fast for scheduling; the durable store survives worker crashes.
+
+## Politeness & Crawl Delay
+
+Politeness is not optional — it is what separates a responsible crawler from one that gets IP-banned and breaks websites under load.
+
+**robots.txt compliance**: before crawling any URL on a domain for the first time, the Fetcher downloads `https://domain.com/robots.txt`. This file declares which paths the site owner disallows for crawling. The crawler must cache this file per domain (re-fetch it daily) and check every URL against it before enqueuing. A URL that matches a disallowed path is dropped.
+
+**Crawl delay**: many `robots.txt` files specify a `Crawl-delay` directive — the minimum seconds between requests to that domain. If unspecified, the convention is to default to 1 second. The back queue design enforces this: the per-domain timer is set to `last_crawl_time + crawl_delay`, and a worker only picks the next URL from that queue when the timer fires.
+
+**Redirect depth limits**: limit redirect chains to 5 hops to prevent redirect loops (`A → B → A`). Any redirect cycle is detected and dropped.
+
+**DNS caching**: resolving DNS for every URL is expensive and puts load on DNS servers. Cache DNS lookups per domain with a TTL of a few minutes.
+
+**User-Agent header**: identify the crawler honestly with a descriptive User-Agent string (e.g., `MySearchBot/1.0 (+https://myengine.com/bot)`). Sites use this to allow or deny specific bots in `robots.txt`.
+
+## Duplicate Detection
+
+Deduplication has two dimensions: URL-level and content-level. They address different problems.
+
+**URL deduplication** asks: have we already seen this exact URL? Without deduplication, a single page linking to itself in a navigation menu would cause infinite re-crawling. The challenge is scale: at 1 billion URLs, a naive hash set requires:
+
+```
+1B URLs × 8 bytes/hash = 8 GB RAM
+```
+
+This is borderline feasible on a single machine but problematic when distributed. A **Bloom filter** is the standard solution. A Bloom filter is a space-efficient probabilistic data structure that answers "definitely not seen" or "probably seen" queries. It has no false negatives — if the filter says a URL has not been seen, it definitely has not. It can have false positives (say "seen" when it has not), but at a 1% false positive rate, a Bloom filter for 1 billion URLs requires only about 1.14 GB — nearly 7× smaller than a hash set. A small false positive rate (skipping a URL that is actually new) is an acceptable trade-off for the memory savings.
+
+URL normalization runs before the Bloom filter check. Normalization converts equivalent URLs to a canonical form:
+- Lowercase the scheme and host: `HTTP://Example.com` → `http://example.com`
+- Remove default port: `http://example.com:80/` → `http://example.com/`
+- Sort query parameters alphabetically: `?b=2&a=1` → `?a=1&b=2`
+- Remove fragments (`#section`) — these are client-side only, not separate pages
+
+**Content deduplication** asks: even if the URL is new, is this page's content substantially the same as a page we have already stored? Mirrors, scrapers, and duplicate articles create enormous content redundancy on the web. Storing exact duplicates wastes disk and confuses the index.
+
+For exact duplicate detection, compute a fast hash (MD5 or SHA-1) of the page body. Store all known hashes and skip pages whose hash matches.
+
+For near-duplicate detection, use **SimHash**. SimHash generates a 64-bit fingerprint for a document such that two documents that are 90% similar produce fingerprints that differ in only a few bits. By comparing Hamming distances between fingerprints, you can detect pages that are "essentially the same" even if they differ by a few navigation links or ads.
+
+## Storage
+
+At 1 billion pages with 10 MB average size:
+
+```
+Raw storage = 1B × 10 MB = 10 PB
+```
+
+10 petabytes of raw HTML is not stored in a relational database. The architecture separates concerns:
+
+**Object storage (S3 or GCS)** stores raw HTML. Keys are URL hashes (e.g., `s3://crawl-store/2024/01/15/{url_hash}.html.gz`). Pages are compressed (gzip typically achieves 10× compression for HTML), bringing effective storage to roughly 1 PB. S3 is designed for this workload: massively parallel writes, cheap storage, no schema.
+
+**Cassandra** stores per-URL metadata. The schema:
+
+```sql
+CREATE TABLE crawl_metadata (
+  url_hash   TEXT PRIMARY KEY,
+  url        TEXT,
+  crawled_at TIMESTAMP,
+  http_status INT,
+  content_hash TEXT,
+  sim_hash   BIGINT,
+  s3_key     TEXT,
+  links_out  LIST<TEXT>
+);
+```
+
+Cassandra is chosen because it handles very high write throughput (millions of crawled pages per hour) and supports time-to-live (TTL) on rows — useful for expiring old crawl metadata when re-crawling.
+
+**Redis** holds the active URL Frontier state: per-domain back queues, domain timers, and the Bloom filter. Redis is fast enough for millions of Frontier lookups per second.
+
+## Scaling
+
+At 1 billion pages per month, the throughput requirement is:
+
+```
+QPS = 1,000,000,000 / (30 × 86,400) ≈ 385 pages/sec
+```
+
+385 pages/sec is achievable with roughly 50–100 Fetcher workers, given that most fetches complete in under 1 second (network latency is the bottleneck, not compute). The Fetcher pool scales horizontally — add workers to increase throughput.
+
+**Domain affinity**: each worker should own a subset of domains. When a worker picks a URL from the Frontier, it should route it to the worker responsible for that domain. This way, the per-domain crawl delay is enforced within a single worker — no need for distributed coordination to enforce politeness per domain. A consistent hash ring on the domain name assigns domains to workers.
+
+**JavaScript-heavy pages**: standard HTTP fetching cannot execute JavaScript, so single-page applications (SPAs) that render content via JavaScript appear empty to the crawler. For sites that require JavaScript execution, run headless browser instances (Chromium/Playwright). This is far more resource-intensive — a headless browser uses 10–50× more CPU than a plain HTTP fetch — so limit it to sites explicitly marked as requiring JavaScript rendering.
+
+**Freshness and re-crawl scheduling**: not every page needs to be crawled with the same frequency. News sites change every few minutes; Wikipedia articles change every few days; old archived blog posts may be static for years. A re-crawl scheduler tracks `last_modified` headers, content hash changes over time, and page-level update frequency to assign re-crawl intervals. Pages that change often get scheduled more frequently; stable pages are deprioritized.
+
+The crawler pipeline — Frontier → Fetcher → Parser → Dedup → Storage — can be operated as a streaming pipeline on Kafka. Each stage is a consumer group reading from one Kafka topic and producing to the next. This decouples stages, allows independent scaling, and provides durability — if the Parser crashes, it resumes from its last Kafka offset without losing work.
