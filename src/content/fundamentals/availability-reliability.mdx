@@ -1,0 +1,58 @@
+---
+title: "Availability & Reliability"
+description: "Learn the nines, understand fault tolerance, and see how SLAs, SLOs, and SLIs define production quality."
+order: 6
+difficulty: Beginner
+readTime: "10 min read"
+diagram: AvailabilityDiagram
+relatedTopics:
+  - building-blocks/load-balancing
+  - building-blocks/database-replication
+takeaways:
+  - "Each additional '9' of availability reduces downtime by 10x"
+  - "High availability requires eliminating every single point of failure"
+  - "Reliability means correct results, not just uptime"
+  - "SLOs are internal targets; SLAs are contractual commitments to customers"
+---
+
+## Availability: The Nines
+
+Availability is the percentage of time a system is operational and able to serve requests. It is almost always expressed as a number of nines after the decimal point, and each additional nine represents an order-of-magnitude reduction in allowable downtime. The gap between these levels is enormous when you translate percentages into real time.
+
+A system with 99% availability (two nines) can be down for 3.65 days per year. That sounds acceptable until you imagine a payment processor or a hospital records system going offline for three and a half days. 99.9% availability (three nines) allows 8.7 hours of downtime per year — still potentially disruptive for critical services. 99.99% (four nines) allows only 52 minutes per year, which requires well-engineered automated failover. 99.999% (five nines) allows just 5 minutes per year, which demands extreme redundancy, fast detection, and automated recovery with almost no room for human intervention.
+
+The appropriate availability target depends entirely on the context. A personal side project might be fine at 99%. A consumer e-commerce platform might target 99.9%. A banking system or air traffic control system might require 99.999%. Higher availability is also more expensive: achieving five nines typically requires redundant hardware across multiple physical data centers, sophisticated monitoring, automated failover, and significant engineering investment in both infrastructure and operational practices.
+
+## Reliability
+
+Reliability is related to availability but distinct. A system that is available is reachable, but a system that is reliable also produces correct results. A database that is up but returns corrupted data is available but not reliable. A recommendation system that is reachable but surfaces wildly irrelevant results is available but unreliable.
+
+Reliability is harder to measure than availability because correctness is domain-specific. For a search engine, correctness might mean returning relevant results. For a financial transaction, correctness might mean that money is debited from exactly one account and credited to exactly one other. For a messaging system, correctness might mean that messages are delivered at least once, or exactly once, or in order. Defining what "correct" means for your system is a prerequisite for measuring reliability, and it forces you to be precise about the promises your system makes to its users.
+
+In practice, reliability requires both preventing errors and handling them gracefully when they occur. Defensive programming, input validation, idempotent operations, and comprehensive testing all contribute to reliability. So does designing for partial failure: in a distributed system, components will fail, and a reliable system must either mask those failures or fail in a well-understood, recoverable way.
+
+## Fault Tolerance
+
+Fault tolerance is the property of a system that allows it to continue operating correctly even when some of its components fail. Hardware fails, networks partition, software has bugs — a fault-tolerant system accepts these realities and continues working despite them. This is distinct from preventing faults: fault tolerance is about surviving faults when they occur, not eliminating them.
+
+Redundancy is the foundational technique for fault tolerance. If a service has two instances and one crashes, the other continues serving requests. If data is replicated across three disks and one fails, the other two still hold all the data. Redundancy introduces its own complexity: which copy is authoritative? How do you detect that a component has failed? How do you recover? These questions lead to the topics of consensus algorithms, leader election, and health checking that underpin distributed systems.
+
+A single point of failure (SPOF) is any component whose failure would take down the entire system. Identifying and eliminating SPOFs is the primary engineering activity in building highly available systems. Common SPOFs include: a single load balancer, a single database with no replicas, a single DNS server, a single network switch, a single authentication service with no redundancy. Every dependency is potentially a SPOF — even dependencies you do not control, like a third-party API with no fallback.
+
+## High Availability Patterns
+
+Active-passive (also called primary-standby) is the simplest high availability pattern. One instance actively handles all requests while one or more standby instances remain idle, replicating state from the active instance. If the active instance fails, a standby takes over. The transition from standby to active (failover) may be automatic or manual. Active-passive is simple to understand and reason about, but the passive instance represents wasted capacity — it consumes resources without serving traffic under normal conditions.
+
+Active-active distributes traffic across multiple instances simultaneously, all of which handle live requests. If one instance fails, traffic is redistributed among the survivors. Active-active uses resources more efficiently and typically provides lower latency (since geographic distribution is easier when all instances are active). The complexity cost is higher: if instances hold state, that state must be synchronized, and conflicting writes must be handled. Stateless services (like most HTTP API servers) are natural candidates for active-active; stateful services (like databases) require more careful design.
+
+The health check is the mechanism that ties availability patterns together. A load balancer or orchestration system periodically probes each instance to determine whether it is healthy. Instances that fail health checks are removed from rotation; instances that recover are readded. Designing good health checks is subtle: a health check that always passes will route traffic to broken instances; one that is too aggressive will remove instances during transient slowdowns, reducing capacity at the moment you need it most.
+
+## SLAs, SLOs, and SLIs
+
+These three terms are often confused but represent a coherent hierarchy for defining and measuring service quality. Service Level Indicators (SLIs) are the actual measurements — the raw data. Examples include: request error rate, response latency at the 99th percentile, proportion of requests served within 200 ms, or data durability (percentage of writes that are not lost). SLIs are objective measurements of what your system is actually doing.
+
+Service Level Objectives (SLOs) are the targets you set for your SLIs. "Error rate below 0.1%" is an SLO. "99th percentile latency below 300 ms" is an SLO. SLOs are internal targets — they represent the level of service your team has committed to maintaining. If your SLOs are consistently met, your users are probably happy. If they are frequently violated, users are probably suffering.
+
+Service Level Agreements (SLAs) are contractual commitments between a service provider and its customers. They are typically less aggressive than SLOs — your internal SLO might be 99.9% availability, but your SLA with paying customers might promise 99.5%, giving you a buffer before you are legally or financially liable for breaches. SLA violations typically trigger compensation clauses, making them consequential in a way that SLO violations (which are internal) are not.
+
+Error budgets connect these concepts to engineering practice. If your SLO is 99.9% availability, your monthly error budget is 0.1% of uptime — roughly 43 minutes in a 30-day month. That budget can be spent: on planned maintenance, on the risk of deploying new features, on incidents. When the error budget is exhausted, the team has a concrete signal that stability work should take priority over new features. Error budgets transform the abstract goal of reliability into a measurable resource that teams actively manage.

@@ -1,0 +1,60 @@
+---
+title: "APIs"
+description: "Understand the contracts between services — REST, GraphQL, gRPC, and WebSockets, and how to choose the right style for your use case."
+order: 4
+difficulty: Beginner
+readTime: "12 min read"
+diagram: ApisDiagram
+relatedTopics:
+  - fundamentals/http-https
+  - building-blocks/websockets-and-long-polling
+takeaways:
+  - "REST is simple and universal — the default choice for public APIs"
+  - "GraphQL shines when different clients need different data shapes"
+  - "gRPC is ideal for high-performance internal service communication"
+  - "WebSockets are required for true real-time bidirectional communication"
+---
+
+## What is an API
+
+An API (Application Programming Interface) is a contract between a client and a server. It defines what operations are available, what data must be sent, and what the server will return. APIs are how the modern internet works: your weather app does not generate forecasts — it calls the National Weather Service API. Your payment form does not move money — it calls the Stripe API. Every service boundary in a distributed system is bridged by an API.
+
+The word "contract" is important. A good API is stable and predictable. Clients depend on it; breaking changes require coordination with all consumers. API design is therefore not just a technical exercise but an organizational one. The decisions you make about how to structure your API — the URL shapes, the data formats, the error codes — will constrain how your system evolves for years. Design APIs deliberately, version them carefully, and treat breaking changes with the same gravity as database schema migrations.
+
+## REST APIs
+
+REST (Representational State Transfer) is the dominant API style for the web. It maps operations onto HTTP methods (GET, POST, PUT, PATCH, DELETE) and organizes data around resources identified by URLs. A REST API for a blog might have `/articles` to list all articles, `/articles/42` to retrieve a specific article, `POST /articles` to create a new one, and `DELETE /articles/42` to remove it. The stateless nature of HTTP aligns naturally with REST: each request carries all the information the server needs, making REST APIs easy to scale horizontally.
+
+REST APIs typically return JSON, which is human-readable and supported in every programming language. Pagination is handled by convention — usually with query parameters like `?page=2&limit=20` or cursor-based tokens for large datasets. Idempotency is a property worth understanding: GET and DELETE are naturally idempotent (calling them multiple times has the same effect as calling once), and PUT should be designed to be idempotent too. Proper use of HTTP status codes (200, 201, 400, 404, 500) makes REST APIs self-documenting for developers who read responses in their terminals.
+
+The main limitation of REST is overfetching and underfetching. A single REST endpoint returns a fixed shape of data. If a mobile client only needs the title and thumbnail of an article, it still receives the full body text, author bio, and all associated comments. If a page needs data from three resources, it must make three separate requests. These inefficiencies accumulate at scale and motivated the development of alternative approaches.
+
+## GraphQL
+
+GraphQL was developed at Facebook in 2012 and open-sourced in 2015 as a response to REST's overfetching problem. Instead of multiple endpoints each returning a fixed data shape, GraphQL exposes a single endpoint where clients specify exactly what data they need using a query language. A mobile client can request just the title and thumbnail; a desktop client can request the full article with comments; both queries go to the same endpoint, and each gets precisely what it asked for.
+
+This is particularly valuable when multiple clients — mobile apps, web apps, third-party integrations — each have different data requirements. Instead of building and maintaining multiple API endpoints tailored to each client, or requiring every client to download more data than it needs, GraphQL lets each client self-serve its exact requirements. Facebook originally built GraphQL to power the News Feed across many different platforms from a single API layer.
+
+GraphQL does introduce complexity. The N+1 problem is a common pitfall: if you query a list of articles and each article has an author field, a naive GraphQL server will make one database query for articles and then one additional query per article to fetch each author — potentially thousands of queries for a single request. Solutions like DataLoader batch these lookups, but they require deliberate implementation. GraphQL's flexible query model also makes it harder to cache responses at the HTTP layer, since POST requests to the same URL can return completely different data depending on the query body.
+
+## gRPC
+
+gRPC is a high-performance RPC (Remote Procedure Call) framework developed by Google. Where REST and GraphQL treat communication as HTTP requests returning JSON, gRPC treats it as calling a function on a remote server. You define your service and its methods in a `.proto` file using Protocol Buffers, a binary serialization format. The gRPC toolchain generates client and server code in your language of choice from that definition.
+
+The binary encoding of Protocol Buffers is significantly more compact and faster to serialize/deserialize than JSON. Combined with HTTP/2's multiplexing and bidirectional streaming, gRPC is measurably faster than REST for internal service communication. It supports four communication patterns: unary (one request, one response — like REST), server streaming (one request, many responses), client streaming (many requests, one response), and bidirectional streaming. This makes it suitable for use cases like real-time data ingestion, live updates, and long-running operations.
+
+gRPC is common within large distributed systems as the transport between microservices, where performance matters and both sides control the code. It is less suitable for public APIs because browser support requires a proxy layer (gRPC-Web), and the binary format is harder to explore without tooling. The tight coupling between client and server via generated code also means API changes require regenerating and redeploying client libraries, which is manageable within an organization but awkward for external consumers.
+
+## WebSockets
+
+HTTP follows a strict request-response pattern: the client asks, the server answers, and the connection is closed (or kept alive for reuse). This model works for most applications, but it is fundamentally asymmetric — the server cannot push data to the client unless the client asks first. For real-time applications — live chat, collaborative document editing, live sports scores, stock tickers — you need a different model.
+
+WebSockets solve this by establishing a persistent, bidirectional connection between client and server. The connection starts as a normal HTTP request with a special Upgrade header; if the server supports WebSockets, it responds with a 101 Switching Protocols status and the connection becomes a full-duplex TCP channel. From that point, either side can send messages at any time without waiting for the other to request data.
+
+WebSockets work well for applications with a high frequency of small messages where the overhead of HTTP headers on every exchange would dominate. The persistent connection means there is no per-message connection setup cost. However, WebSockets introduce statefulness — the server must maintain the connection, which complicates horizontal scaling (requests from the same connection must reach the same server, or state must be stored externally). For applications that need occasional server-initiated updates, Server-Sent Events (SSE) is a simpler alternative that works over plain HTTP.
+
+## Choosing the Right API Style
+
+The choice of API style should be driven by your specific requirements. REST is the default choice for public APIs and most web applications: it is simple, widely understood, cacheable, and works with every HTTP client. If your clients have diverse data requirements or you are building a flexible platform that others will query in unpredictable ways, GraphQL is worth the added complexity. For internal microservice communication where performance matters and you control both client and server, gRPC delivers real throughput benefits. For genuine real-time bidirectional communication — not just frequent polling or server-pushed updates — WebSockets are the right tool.
+
+Many large systems use multiple API styles simultaneously. A company might expose a public REST API for third-party developers, use GraphQL to power their own web and mobile frontends, communicate between backend services over gRPC, and push real-time notifications to users via WebSockets. The API style is a tool; choose the one that fits the problem at hand.

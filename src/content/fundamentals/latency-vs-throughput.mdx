@@ -1,0 +1,54 @@
+---
+title: "Latency vs Throughput"
+description: "Understand the two fundamental performance metrics — and why optimizing for one often degrades the other."
+order: 5
+difficulty: Beginner
+readTime: "7 min read"
+diagram: LatencyDiagram
+relatedTopics:
+  - fundamentals/availability-reliability
+  - building-blocks/caching
+takeaways:
+  - "Latency measures time for one request; throughput measures requests per second"
+  - "Optimizing for one often degrades the other — identify your actual bottleneck first"
+  - "p99 latency matters more than average for user experience"
+  - "Tail latency amplifies in microservices — a 1% slow service causes 10%+ slow composite calls"
+---
+
+## Latency Defined
+
+Latency is the time it takes for a single operation to complete, measured from the moment a request is initiated to the moment a response is received. When a user clicks a button and waits for a page to load, they are experiencing latency. When an API call returns in 50 milliseconds, that 50 ms is latency. It is fundamentally a per-operation measurement.
+
+Latency has two components: propagation delay (the time for signals to travel through the physical medium) and processing delay (the time spent computing a result). You can reduce processing delay by making your code faster, using better algorithms, or caching results. You cannot reduce propagation delay below the speed of light — a signal traveling from New York to London and back will always take at least 70 ms just from physics. This physical floor has real consequences: a globally distributed application cannot achieve single-digit millisecond round trips between distant users and servers, no matter how fast the servers are.
+
+## Throughput Defined
+
+Throughput is the number of operations a system can handle per unit of time — typically expressed as requests per second (RPS) or transactions per second (TPS). Where latency describes a single journey, throughput describes the capacity of a highway. A server that handles 10,000 requests per second has higher throughput than one that handles 100, regardless of how fast each individual request is.
+
+Throughput is bounded by the slowest resource in the system — the bottleneck. If a database can execute 5,000 queries per second, no amount of optimization elsewhere can push total system throughput above that number. Identifying and relieving bottlenecks is the core activity of performance engineering. Often the bottleneck shifts: remove a CPU bottleneck and you might expose a database bottleneck; add read replicas and you might expose a network bottleneck. Performance work is iterative.
+
+## The Relationship Between Them
+
+Latency and throughput are related but distinct, and optimizing for one frequently degrades the other. The classic example is batching. If you batch ten database writes into a single transaction, throughput increases dramatically — you are doing ten times the work per round trip. But each individual write must wait for the batch to fill before being submitted, which increases its latency. You are trading per-request responsiveness for bulk efficiency.
+
+The same trade-off appears in many forms. A queue that smooths out traffic spikes increases throughput by preventing the database from being overwhelmed, but requests that arrive during a spike sit in the queue, increasing their latency. A connection pool limits the number of simultaneous connections to a database, preventing resource exhaustion (and thus improving sustained throughput), but a request that arrives when the pool is full must wait for a connection to become available.
+
+The practical lesson is to understand your system's actual bottleneck before choosing an optimization strategy. A system suffering from low throughput needs different solutions than one suffering from high latency, and the right fix for one can make the other worse.
+
+## Numbers Every Engineer Should Know
+
+Internalizing orders-of-magnitude estimates for common operations changes how you reason about performance. An L1 cache reference takes roughly 1 nanosecond — essentially instantaneous. An L2 cache reference takes around 4 nanoseconds; L3 around 40 nanoseconds. Main memory (RAM) access takes approximately 100 nanoseconds. These numbers are why cache hierarchies exist and why cache misses matter.
+
+Crossing the process boundary into disk I/O is where latency explodes. An SSD random read takes roughly 100 microseconds — 1,000 times slower than RAM. A spinning disk (HDD) random read takes around 10 milliseconds — another 100x slower still. A network round trip within the same data center takes roughly 0.5 milliseconds. A round trip across the continental United States takes 40–70 milliseconds. A round trip across continents might take 100–200 milliseconds.
+
+These numbers have a clear message: your code almost certainly does not matter. The latency of a few extra function calls or a slightly inefficient algorithm is dwarfed by a single unnecessary disk read or network round trip. The engineers who chase the most performance gains are the ones who eliminate I/O operations, not the ones who micro-optimize CPU cycles.
+
+## Optimizing Each
+
+To reduce latency, the most effective strategies are: eliminating I/O operations through caching; keeping data as close to the processor as possible (in memory rather than on disk, in the same data center rather than across a continent); and reducing the amount of work required to serve a request through denormalization, pre-computation, or smarter data access patterns.
+
+To increase throughput, the most effective strategies are: horizontal scaling (adding more servers to share load); asynchronous processing (accepting work immediately and processing it in the background rather than making the caller wait); connection pooling and batching to maximize hardware utilization; and identifying and relieving bottleneck resources.
+
+Measuring latency correctly requires percentiles, not averages. An average hides the distribution: if 99% of requests complete in 10 ms but 1% take 10 seconds, the average looks fine but real users are having terrible experiences. p50 is the median — half of requests are faster, half are slower. p99 is the 99th percentile — only 1% of requests are slower. p999 is the 99.9th percentile. For user-facing systems, p99 or even p999 is what matters, because users experiencing the tail of your latency distribution are having the worst experience.
+
+Tail latency amplifies in microservices in a mathematically predictable way. If a single service has a p99 latency of 100 ms, that means 1% of requests to that service are slow. If you build a response by calling three independent services, the probability that at least one of them is slow is roughly 3%. Call ten services and it approaches 10%. The more dependencies a request has, the more likely it is to be slowed by the tail latency of one of them — which is one reason why reducing the number of service calls in the critical path is valuable, and why the latency profile of each dependency matters.

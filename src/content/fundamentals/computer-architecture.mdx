@@ -1,18 +1,52 @@
 ---
-title: Computer Architecture
-description: Understand how computers work at the hardware level — the foundation of all system design.
+title: "Computer Architecture"
+description: "Understand how computers work at the hardware level — the foundation of all system design."
 order: 1
 difficulty: Beginner
-readTime: 8 min read
+readTime: "8 min read"
 diagram: ComputerArchitectureDiagram
 relatedTopics:
   - fundamentals/networking-basics
   - fundamentals/latency-vs-throughput
 takeaways:
-  - CPUs execute instructions but are fast at computation, not storage
-  - RAM is fast but volatile; disk is slow but persistent
-  - Cache hierarchy (L1/L2/L3) bridges the gap between CPU speed and memory speed
-  - I/O operations (disk, network) are the slowest part of any system
+  - "CPUs execute instructions but cannot store data themselves"
+  - "Cache hierarchy (L1/L2/L3) exists because RAM is too slow for modern CPUs"
+  - "Disk I/O operations (disk, network) dominate system latency"
+  - "Understanding hardware limits helps you design better software"
 ---
 
-*Content coming soon...*
+## What is Computer Architecture
+
+Computer architecture describes how the fundamental components of a computer — the processor, memory, and storage — are organized and how they communicate with each other. For most software engineers, this feels like ancient history: something you learned in a college course and then forgot. But when you are designing systems that need to handle millions of requests per day, the physical limits of hardware become the ceiling on everything you can achieve.
+
+Think of it this way: every caching strategy, every database index, every decision about whether to use in-memory storage versus disk — all of these choices are rooted in the physical realities of computer architecture. Understanding why certain operations are fast and others are slow turns system design from guesswork into principled engineering.
+
+## The CPU
+
+The Central Processing Unit is the brain of the computer. It fetches instructions from memory, decodes them, executes them, and writes results back. Modern CPUs run at clock speeds measured in gigahertz — a 3 GHz processor can execute three billion cycles per second. That sounds impossibly fast, and in isolation it is. The problem is that the CPU spends most of its time waiting for data to arrive from memory.
+
+Modern processors have multiple cores, each of which can independently execute instructions. A quad-core CPU can run four separate threads simultaneously. Some processors support hyperthreading, which allows each physical core to appear as two logical cores to the operating system, though the performance benefit depends heavily on the workload. For system design purposes, what matters is that CPU-bound work scales by adding more cores, while memory-bound and I/O-bound work hits different bottlenecks entirely.
+
+## Memory Hierarchy
+
+The gap between how fast the CPU can process data and how fast memory can deliver it is enormous. To bridge this gap, computers use a hierarchy of progressively larger but slower memory types.
+
+L1 cache sits directly on the CPU die and can deliver data in roughly one nanosecond. It is typically 32–64 KB per core. L2 cache is larger — a few megabytes — and takes about four nanoseconds to access. L3 cache is shared across all cores on the chip and can reach tens of megabytes, with access times around ten to forty nanoseconds. All three cache levels use SRAM (Static RAM), which is extremely fast but expensive and power-hungry.
+
+Below the cache levels sits main memory: DRAM (Dynamic RAM). Modern servers carry anywhere from 32 GB to several terabytes of RAM. Accessing RAM takes roughly 100 nanoseconds — about 100 times slower than L1 cache. RAM is volatile, meaning data disappears when power is removed. When engineers talk about "in-memory" databases like Redis, this is the layer they mean: fast, but not durable on its own.
+
+The cache hierarchy exists because programs exhibit locality of reference — they tend to access the same data repeatedly and access data near recently-used addresses. The CPU's cache hardware exploits this pattern automatically. When you write code that accesses data in sequential memory order, you are using the cache efficiently. When you scatter accesses randomly across memory, you cause cache misses, and the CPU stalls waiting for data from RAM.
+
+## Storage
+
+Below RAM sits persistent storage. Data here survives power loss, but access is dramatically slower. Solid-state drives (SSDs) have no moving parts and can access data in roughly 100 microseconds — about 1,000 times slower than RAM. Hard disk drives (HDDs) have spinning platters and mechanical read heads, making random access take around 10 milliseconds — 100 times slower still than SSDs, and 100,000 times slower than RAM.
+
+Modern SSDs can sustain sequential read/write throughputs of several gigabytes per second, which makes them excellent for streaming large datasets. But random access patterns, where you read small chunks from unpredictable locations, reveal their true latency. For system design, the rule of thumb is: if you need something fast, keep it in memory; if you need it durable, write it to disk; if you need both, use a write-ahead log paired with in-memory caching.
+
+## Why This Matters for System Design
+
+When a system is slow, one of three resources is usually the bottleneck: CPU compute, memory bandwidth, or I/O (disk or network). Identifying which one lets you pick the right solution. A CPU-bound service benefits from horizontal scaling — adding more servers. A memory-bound service might need to be redesigned to improve cache locality or to keep hot data closer to the processor. An I/O-bound service might benefit from caching, batching writes, or switching to a faster storage tier.
+
+Vertical scaling — upgrading a single server with a faster CPU, more RAM, or faster storage — has a ceiling defined by the best hardware money can buy. Horizontal scaling — distributing work across many servers — can in theory scale indefinitely, but introduces complexity around coordination, consistency, and failure handling. Understanding the hardware layer helps you make informed decisions about when to scale vertically versus when to add complexity through distribution.
+
+The numbers matter too. When you know that an SSD access costs 100 microseconds and a RAM access costs 100 nanoseconds, a caching layer stops feeling like magic and starts feeling inevitable. Every abstraction in system design — databases, caches, message queues — exists to manage the physical realities described here.

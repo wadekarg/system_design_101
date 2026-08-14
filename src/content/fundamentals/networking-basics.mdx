@@ -1,0 +1,56 @@
+---
+title: "Networking Basics"
+description: "Learn how computers communicate across networks — IP addresses, DNS, TCP/UDP, and how data travels the internet."
+order: 2
+difficulty: Beginner
+readTime: "10 min read"
+diagram: NetworkingDiagram
+relatedTopics:
+  - fundamentals/http-https
+  - fundamentals/apis
+takeaways:
+  - "DNS translates human-readable names to IP addresses"
+  - "TCP guarantees delivery and ordering; UDP sacrifices both for speed"
+  - "Every internet request involves multiple DNS lookups behind the scenes"
+  - "Ports allow multiple services to run on the same IP address"
+---
+
+## IP Addresses
+
+Every device connected to a network needs a unique identifier so that data can be routed to it. That identifier is the IP address. The version most people encounter is IPv4, which represents addresses as four numbers from 0 to 255 separated by dots — for example, 192.168.1.1. IPv4 can theoretically address about 4.3 billion unique devices, a number that seemed limitless in the 1980s but proved woefully inadequate as smartphones, IoT devices, and cloud servers proliferated.
+
+IPv6 was developed to solve this exhaustion problem. It uses 128-bit addresses written in hexadecimal — like 2001:0db8:85a3:0000:0000:8a2e:0370:7334 — and supports an essentially unlimited number of addresses. Despite being available for decades, IPv6 adoption has been gradual; much of the internet still runs on IPv4, often using NAT (Network Address Translation) to let many devices share a single public IP address.
+
+IP addresses come in two varieties: public and private. Public IP addresses are globally routable — they can be reached from anywhere on the internet. Private IP addresses (like the 192.168.x.x range in your home network or the 10.x.x.x range in a corporate network) are not routable on the public internet and exist only within a local network. When your laptop at home makes a request to a web server, your router translates your private IP to its public IP address before the request leaves your home network.
+
+## DNS — The Internet's Phone Book
+
+IP addresses are precise and efficient for machines, but they are terrible for humans to remember. Would you rather visit "142.250.80.46" or "google.com"? DNS, the Domain Name System, solves this by mapping human-readable domain names to IP addresses. It is a globally distributed, hierarchical database that handles trillions of lookups every day.
+
+When you type a URL into your browser, a DNS resolution chain begins. First, your device checks its local cache — if it recently looked up the same domain, it uses the cached result. If not, it asks a recursive resolver, typically provided by your ISP or a service like Google (8.8.8.8) or Cloudflare (1.1.1.1). The recursive resolver does the heavy lifting: it queries a root nameserver to find out which organization handles the top-level domain (like .com), then queries that TLD nameserver to find the authoritative nameserver for the specific domain, then finally queries the authoritative nameserver to get the actual IP address. This chain of four queries typically completes in tens of milliseconds.
+
+Each DNS record comes with a TTL (Time to Live) value, which specifies how long resolvers should cache the result before checking again. A low TTL allows you to change IP addresses quickly but increases DNS query volume. A high TTL reduces query load but means DNS changes propagate slowly. When engineers need to migrate infrastructure or redirect traffic, managing TTL values becomes critical.
+
+## TCP vs UDP
+
+Once you have an IP address, you need a transport protocol to move data reliably (or quickly). The two dominant options are TCP and UDP, and they represent a fundamental trade-off.
+
+TCP (Transmission Control Protocol) is connection-oriented and guarantees reliable, ordered delivery. Before any data is exchanged, TCP performs a three-way handshake: the client sends a SYN packet, the server responds with SYN-ACK, and the client confirms with ACK. This establishes a connection. From that point on, TCP tracks every packet, requires acknowledgments from the receiver, and retransmits any packets that are lost. If packets arrive out of order, TCP reorders them before delivering them to the application. This reliability makes TCP ideal for web browsing, email, file transfers, and any application where data integrity matters more than raw speed.
+
+UDP (User Datagram Protocol) throws out all of that overhead. It sends packets without establishing a connection, without tracking whether they arrive, and without reordering them if they arrive out of sequence. This sounds like a liability, but it is actually a feature for applications where a lost packet is better than a delayed one. Video streaming, online gaming, and voice calls all use UDP: if a video frame is late, you want the next frame — not to pause and wait for retransmission of the old one. DNS also uses UDP for its queries, because the overhead of a TCP handshake for a single small query-response exchange would be disproportionate.
+
+## Ports
+
+An IP address identifies a machine, but a single machine runs many services simultaneously. Ports are how the operating system distinguishes between traffic destined for different services. A port is a 16-bit number (0–65535) appended to an IP address. When you connect to a web server, you are connecting to port 80 (HTTP) or port 443 (HTTPS) at that server's IP address.
+
+Well-known ports are standardized by convention: port 80 for HTTP, 443 for HTTPS, 22 for SSH, 25 for SMTP (email), 3306 for MySQL, 5432 for PostgreSQL. Ports below 1024 are typically reserved for system services and require elevated privileges to bind. Application developers typically run their services on ports above 1024. When you run a local development server on port 3000 or 8080, you are using ports in this application range.
+
+Understanding ports matters for firewall configuration, load balancer rules, and microservice networking. A common source of production incidents is a firewall rule that blocks traffic on the wrong port, or a service configured to listen on port A while clients connect to port B.
+
+## How a Request Travels the Internet
+
+When you type "https://github.com" into your browser and press Enter, a sequence of events begins that spans multiple systems and protocols. First, your browser checks whether it has a cached DNS result for github.com. Assuming it does not, it queries your system's DNS resolver, which queries up the DNS hierarchy as described above, ultimately returning an IP address like 140.82.114.4.
+
+With the IP address in hand, your browser initiates a TCP connection to port 443 at that address. The connection travels from your device through your router, across your ISP's network, through multiple intermediate routers operated by backbone network providers, until it reaches GitHub's servers — potentially bouncing through a dozen or more hops along the way. Because this is HTTPS, a TLS handshake follows the TCP handshake to establish an encrypted channel.
+
+Only after all of this setup does your browser send the actual HTTP GET request for the page. The response travels the same path in reverse, arriving in packets that TCP reassembles in order. For modern web applications, this entire process typically completes in 100–500 milliseconds for servers in the same country, and potentially over a second for requests crossing continents. Every component of this journey — DNS, TCP, TLS, HTTP — contributes to that total latency, which is why engineers optimize each layer separately.
