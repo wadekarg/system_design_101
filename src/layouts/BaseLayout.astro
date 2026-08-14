@@ -19,8 +19,15 @@ const base = import.meta.env.BASE_URL;
     <meta name="description" content={description} />
     <title>{title} | System Design 101</title>
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+    <meta property="og:title" content={`${title} | System Design 101`} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={Astro.url} />
   </head>
   <body class="bg-bg min-h-screen">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-white focus:px-4 focus:py-2 focus:rounded-lg">
+      Skip to content
+    </a>
     <div class="flex min-h-screen">
       <Sidebar />
       <main id="main-content" class="flex-1 min-w-0">
