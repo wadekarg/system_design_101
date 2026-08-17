@@ -1,6 +1,6 @@
 ---
 title: "Networking Basics"
-description: "Learn how computers communicate across networks — IP addresses, DNS, TCP/UDP, and how data travels the internet."
+description: "How computers find and talk to each other across the internet — IP addresses, DNS, TCP vs UDP, ports, and the journey of a single request."
 order: 2
 difficulty: Beginner
 readTime: "10 min read"
@@ -13,44 +13,229 @@ takeaways:
   - "TCP guarantees delivery and ordering; UDP sacrifices both for speed"
   - "Every internet request involves multiple DNS lookups behind the scenes"
   - "Ports allow multiple services to run on the same IP address"
+quiz:
+  - question: "You're building a live multiplayer game where players' positions update 30 times per second. A dropped update should be ignored, not replayed. Which transport protocol fits best?"
+    options:
+      - "TCP, because it guarantees every packet arrives"
+      - "UDP, because a late position update is useless — you want the next one"
+      - "TCP, because games need ordered delivery"
+      - "It doesn't matter; both behave identically"
+    answer: 1
+    explanation: "For real-time data, a stale packet is worse than a lost one. UDP skips retransmission and ordering, so a dropped update is simply ignored and the next fresh one arrives immediately."
+  - question: "You're migrating your website to a new server IP tomorrow at 2 AM. What should you do to your DNS records a day in advance?"
+    options:
+      - "Raise the TTL so clients cache the record longer"
+      - "Lower the TTL so the change propagates quickly when you flip it"
+      - "Delete the record and recreate it at cutover"
+      - "Nothing — DNS changes are instant"
+    answer: 1
+    explanation: "A high TTL means resolvers keep the old IP cached for hours. Lowering TTL ahead of time shrinks the cache window so clients pick up the new IP fast after the switch."
+  - question: "A user reports your app works from home but times out at their office. Two other services on the same server respond fine. What's the most likely cause?"
+    options:
+      - "The server's IP address changed"
+      - "DNS is broken for that user"
+      - "A corporate firewall is blocking the specific port your service uses"
+      - "TCP is disabled on their laptop"
+    answer: 2
+    explanation: "Other services on the same IP working rules out a bad IP or global DNS failure. When one port is blocked but others aren't, a firewall filtering that specific port is the classic culprit."
+  - question: "When you type an unfamiliar URL and hit Enter, what happens before your browser can even open a TCP connection?"
+    options:
+      - "The TLS handshake completes"
+      - "A DNS resolution chain turns the domain name into an IP address"
+      - "The HTTP GET request is sent"
+      - "The server picks a port for you"
+    answer: 1
+    explanation: "You can't open a TCP connection without an IP address. DNS resolution (cache → recursive resolver → root → TLD → authoritative) must resolve the name first, and only then can TCP, TLS, and HTTP proceed."
 ---
 
-## IP Addresses
+<Callout type="analogy">
+Sending data across the internet is like mailing a letter. The **IP address**
+is the street address that tells the postal system where to deliver it. **DNS**
+is the phone book that turns "grandma's house" into that street address.
 
-Every device connected to a network needs a unique identifier so that data can be routed to it. That identifier is the IP address. The version most people encounter is IPv4, which represents addresses as four numbers from 0 to 255 separated by dots — for example, 192.168.1.1. IPv4 can theoretically address about 4.3 billion unique devices, a number that seemed limitless in the 1980s but proved woefully inadequate as smartphones, IoT devices, and cloud servers proliferated.
+**Ports** are like apartment numbers — one building (IP) holds many tenants
+(services), and the port says which door to knock on. And the choice between
+**TCP and UDP** is like registered mail versus a postcard: one guarantees
+delivery with a signature, the other just drops it in the box and hopes.
+</Callout>
 
-IPv6 was developed to solve this exhaustion problem. It uses 128-bit addresses written in hexadecimal — like 2001:0db8:85a3:0000:0000:8a2e:0370:7334 — and supports an essentially unlimited number of addresses. Despite being available for decades, IPv6 adoption has been gradual; much of the internet still runs on IPv4, often using NAT (Network Address Translation) to let many devices share a single public IP address.
+## IP Addresses: every device needs one
 
-IP addresses come in two varieties: public and private. Public IP addresses are globally routable — they can be reached from anywhere on the internet. Private IP addresses (like the 192.168.x.x range in your home network or the 10.x.x.x range in a corporate network) are not routable on the public internet and exist only within a local network. When your laptop at home makes a request to a web server, your router translates your private IP to its public IP address before the request leaves your home network.
+Every device on a network needs a unique identifier so data can find it. That
+identifier is the **IP address**.
 
-## DNS — The Internet's Phone Book
+The version you'll see most is **IPv4** — four numbers from 0 to 255 separated
+by dots, like `192.168.1.1`. IPv4 can address about **4.3 billion** devices, a
+number that felt infinite in the 1980s but ran dry once smartphones, IoT
+gadgets, and cloud servers exploded.
 
-IP addresses are precise and efficient for machines, but they are terrible for humans to remember. Would you rather visit "142.250.80.46" or "google.com"? DNS, the Domain Name System, solves this by mapping human-readable domain names to IP addresses. It is a globally distributed, hierarchical database that handles trillions of lookups every day.
+**IPv6** fixes that exhaustion. It uses 128-bit addresses written in hex — like
+`2001:0db8:85a3::8a2e:0370:7334` — with an essentially unlimited supply. Adoption
+has been slow, so much of the internet still runs IPv4, often using **NAT**
+(Network Address Translation) to let many devices share one public IP.
 
-When you type a URL into your browser, a DNS resolution chain begins. First, your device checks its local cache — if it recently looked up the same domain, it uses the cached result. If not, it asks a recursive resolver, typically provided by your ISP or a service like Google (8.8.8.8) or Cloudflare (1.1.1.1). The recursive resolver does the heavy lifting: it queries a root nameserver to find out which organization handles the top-level domain (like .com), then queries that TLD nameserver to find the authoritative nameserver for the specific domain, then finally queries the authoritative nameserver to get the actual IP address. This chain of four queries typically completes in tens of milliseconds.
+IP addresses come in two flavors:
 
-Each DNS record comes with a TTL (Time to Live) value, which specifies how long resolvers should cache the result before checking again. A low TTL allows you to change IP addresses quickly but increases DNS query volume. A high TTL reduces query load but means DNS changes propagate slowly. When engineers need to migrate infrastructure or redirect traffic, managing TTL values becomes critical.
+- **Public** — globally routable; reachable from anywhere on the internet.
+- **Private** — only valid inside a local network (`192.168.x.x` at home,
+  `10.x.x.x` in offices). Not routable on the public internet.
 
-## TCP vs UDP
+When your laptop makes a request, your router rewrites your private IP to its
+public IP before the request leaves your home — that's NAT in action.
 
-Once you have an IP address, you need a transport protocol to move data reliably (or quickly). The two dominant options are TCP and UDP, and they represent a fundamental trade-off.
+<Callout type="tip">
+As of the mid-2020s, roughly **40–45%** of Google's traffic arrives over IPv6,
+yet IPv4 refuses to die. That's why a single public IPv4 address now sells for
+**$30–60** on address markets — genuine scarcity for a 40-year-old design.
+</Callout>
 
-TCP (Transmission Control Protocol) is connection-oriented and guarantees reliable, ordered delivery. Before any data is exchanged, TCP performs a three-way handshake: the client sends a SYN packet, the server responds with SYN-ACK, and the client confirms with ACK. This establishes a connection. From that point on, TCP tracks every packet, requires acknowledgments from the receiver, and retransmits any packets that are lost. If packets arrive out of order, TCP reorders them before delivering them to the application. This reliability makes TCP ideal for web browsing, email, file transfers, and any application where data integrity matters more than raw speed.
+## DNS — the internet's phone book
 
-UDP (User Datagram Protocol) throws out all of that overhead. It sends packets without establishing a connection, without tracking whether they arrive, and without reordering them if they arrive out of sequence. This sounds like a liability, but it is actually a feature for applications where a lost packet is better than a delayed one. Video streaming, online gaming, and voice calls all use UDP: if a video frame is late, you want the next frame — not to pause and wait for retransmission of the old one. DNS also uses UDP for its queries, because the overhead of a TCP handshake for a single small query-response exchange would be disproportionate.
+IP addresses are great for machines and terrible for humans. Would you rather
+type `142.250.80.46` or `google.com`? **DNS** (Domain Name System) maps
+human-readable names to IP addresses. It's a globally distributed, hierarchical
+database handling **trillions** of lookups a day.
 
-## Ports
+When you type a URL, a **resolution chain** kicks off:
 
-An IP address identifies a machine, but a single machine runs many services simultaneously. Ports are how the operating system distinguishes between traffic destined for different services. A port is a 16-bit number (0–65535) appended to an IP address. When you connect to a web server, you are connecting to port 80 (HTTP) or port 443 (HTTPS) at that server's IP address.
+1. **Local cache** — your device checks if it looked this up recently. If so,
+   done.
+2. **Recursive resolver** — otherwise it asks a resolver (your ISP's, or Google
+   `8.8.8.8`, or Cloudflare `1.1.1.1`), which does the legwork.
+3. **Root nameserver** — tells the resolver who handles `.com`.
+4. **TLD nameserver** — tells it the authoritative server for the domain.
+5. **Authoritative nameserver** — returns the actual IP address.
 
-Well-known ports are standardized by convention: port 80 for HTTP, 443 for HTTPS, 22 for SSH, 25 for SMTP (email), 3306 for MySQL, 5432 for PostgreSQL. Ports below 1024 are typically reserved for system services and require elevated privileges to bind. Application developers typically run their services on ports above 1024. When you run a local development server on port 3000 or 8080, you are using ports in this application range.
+This whole chain usually finishes in **tens of milliseconds**.
 
-Understanding ports matters for firewall configuration, load balancer rules, and microservice networking. A common source of production incidents is a firewall rule that blocks traffic on the wrong port, or a service configured to listen on port A while clients connect to port B.
+Each DNS record carries a **TTL** (Time to Live) — how long resolvers may cache
+it before rechecking. It's a trade-off:
 
-## How a Request Travels the Internet
+- **Low TTL** → you can change IPs fast, but query volume rises.
+- **High TTL** → less query load, but changes propagate slowly.
 
-When you type "https://github.com" into your browser and press Enter, a sequence of events begins that spans multiple systems and protocols. First, your browser checks whether it has a cached DNS result for github.com. Assuming it does not, it queries your system's DNS resolver, which queries up the DNS hierarchy as described above, ultimately returning an IP address like 140.82.114.4.
+<Callout type="tip">
+Before a planned server migration, engineers drop the TTL to **60 seconds** a
+day ahead of time. Then when they flip the IP, the old address falls out of
+caches within a minute instead of lingering for hours.
+</Callout>
 
-With the IP address in hand, your browser initiates a TCP connection to port 443 at that address. The connection travels from your device through your router, across your ISP's network, through multiple intermediate routers operated by backbone network providers, until it reaches GitHub's servers — potentially bouncing through a dozen or more hops along the way. Because this is HTTPS, a TLS handshake follows the TCP handshake to establish an encrypted channel.
+## TCP vs UDP: reliable or fast
 
-Only after all of this setup does your browser send the actual HTTP GET request for the page. The response travels the same path in reverse, arriving in packets that TCP reassembles in order. For modern web applications, this entire process typically completes in 100–500 milliseconds for servers in the same country, and potentially over a second for requests crossing continents. Every component of this journey — DNS, TCP, TLS, HTTP — contributes to that total latency, which is why engineers optimize each layer separately.
+Once you have an IP, you need a **transport protocol** to actually move data.
+The two dominant choices — **TCP** and **UDP** — sit at opposite ends of a
+fundamental trade-off.
+
+**TCP** (Transmission Control Protocol) is **connection-oriented** and
+guarantees reliable, ordered delivery. It opens with a **three-way handshake**:
+
+- Client sends **SYN**
+- Server replies **SYN-ACK**
+- Client confirms **ACK**
+
+From there, TCP tracks every packet, waits for acknowledgments, retransmits
+anything lost, and reorders packets that arrive out of sequence. That reliability
+makes it perfect for web browsing, email, and file transfers.
+
+**UDP** (User Datagram Protocol) throws all that overhead out. No handshake, no
+tracking, no reordering — it fires packets and moves on. That sounds reckless,
+but for real-time media a **lost packet beats a late one**: if a video frame is
+late, you want the *next* frame, not a pause to re-fetch the old one.
+
+| | TCP | UDP |
+|---|---|---|
+| Connection | Handshake first | None — just send |
+| Delivery | Guaranteed | Best-effort |
+| Ordering | Reordered for you | Arrives however |
+| Speed | Slower (overhead) | Faster (lean) |
+| Best for | Web, email, files | Video, gaming, voice, DNS |
+
+<Callout type="tip">
+DNS queries ride on **UDP** because a TCP handshake for one tiny question-answer
+would be pure overhead. Modern **HTTP/3** even runs web traffic over UDP (via
+QUIC) — rebuilding just the reliability it needs, without TCP's rigid ordering
+that stalls on a single lost packet.
+</Callout>
+
+## Ports: many services, one machine
+
+An IP address finds a **machine**, but one machine runs many services at once.
+**Ports** let the OS route traffic to the right one. A port is a 16-bit number
+(**0–65535**) tacked onto an IP address. Connecting to a web server means
+connecting to port **80** (HTTP) or **443** (HTTPS) at its IP.
+
+Some ports are standardized by convention:
+
+- **80** — HTTP · **443** — HTTPS
+- **22** — SSH · **25** — SMTP (email)
+- **3306** — MySQL · **5432** — PostgreSQL
+
+Ports below **1024** are reserved for system services and need elevated
+privileges to bind. App developers use ports above that — like `3000` or `8080`
+for a local dev server.
+
+## Where this shows up in real systems
+
+- **CDNs (Cloudflare, Akamai)** → lean on **DNS** to steer you to the nearest
+  edge server. The same domain resolves to different IPs depending on where you
+  are, cutting latency.
+- **Video calls & streaming (Zoom, Netflix live, Twitch)** → **UDP**-based
+  transports, because smooth playback beats perfect delivery.
+- **Databases & internal APIs** → fixed, well-known **ports** so services find
+  each other reliably in microservice networks.
+- **Cloud VPCs (AWS, GCP)** → carve out **private IP** ranges (`10.x.x.x`) so
+  instances talk internally without exposing themselves to the public internet.
+- **Load balancers** → route by **port and IP**, sending port 443 traffic to
+  your web tier and port 5432 to your database tier.
+
+<Callout type="warning">
+The classic trap is a **port or firewall mismatch**. A service listens on port A
+while clients connect to port B, or a firewall silently blocks the port — and
+you get mysterious timeouts that "work on my machine." Always confirm both sides
+agree on the port, and remember that a blocked port fails *silently*, unlike a
+wrong IP which usually errors fast.
+
+DNS has its own trap: **stale caches**. You change an IP, but users keep hitting
+the old server for hours because a high TTL froze the record in caches. Lower the
+TTL *before* the change, not after.
+</Callout>
+
+## How a request travels the internet
+
+Type `https://github.com` and hit Enter, and a chain of systems springs to life:
+
+1. **DNS lookup** — your browser checks its cache, then walks the DNS hierarchy,
+   returning an IP like `140.82.114.4`.
+2. **TCP connection** — your browser opens a connection to port **443**,
+   traveling through your router, your ISP, and a dozen backbone routers to
+   GitHub's servers.
+3. **TLS handshake** — because it's HTTPS, an encrypted channel is negotiated on
+   top of the TCP connection.
+4. **HTTP request** — *only now* does your browser send the actual **GET**
+   request. The response travels back the same path, reassembled in order by TCP.
+
+For servers in the same country this usually finishes in **100–500 ms**; across
+continents it can top a second. Every layer — DNS, TCP, TLS, HTTP — adds to the
+total, which is why engineers optimize each one separately.
+
+## Alternatives & related ideas
+
+<Callout type="alternative">
+When the raw network layer isn't enough, you build on top of it:
+**HTTP/2 and HTTP/3** multiplex many requests over one connection to dodge
+handshake and head-of-line costs; **WebSockets** keep a single TCP connection
+open for two-way real-time messaging instead of re-opening one per request; and
+**anycast** advertises the same IP from many locations so packets flow to the
+nearest datacenter automatically. Each one hides networking pain rather than
+changing the physics underneath.
+</Callout>
+
+## Summary
+
+Networking starts with **IP addresses** (the destination), which **DNS**
+resolves from human-friendly names, and **ports** that pick the right service on
+a machine. Data then moves over **TCP** (reliable and ordered, for web and files)
+or **UDP** (fast and lossy, for real-time media). A single request quietly chains
+DNS → TCP → TLS → HTTP, and every hop adds latency. Master these four pieces and
+most "why can't it connect?" mysteries — stale DNS, blocked ports, wrong protocol
+— stop being mysteries.

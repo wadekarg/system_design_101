@@ -1,56 +1,248 @@
 ---
 title: "HTTP & HTTPS"
-description: "Master the protocol that powers the web — request/response structure, HTTP methods, status codes, and the evolution from HTTP/1.1 to HTTP/3."
+description: "The language browsers and servers speak — requests, responses, methods, status codes, why HTTPS is non-negotiable, and how HTTP/1.1 grew into HTTP/3."
 order: 3
 difficulty: Beginner
-readTime: "9 min read"
+readTime: "10 min read"
 diagram: HttpDiagram
 relatedTopics:
   - fundamentals/apis
   - fundamentals/networking-basics
 takeaways:
-  - "HTTP is stateless — servers do not remember previous requests"
-  - "HTTP/2 multiplexing solves HTTP/1.1's head-of-line blocking problem"
-  - "HTTPS encrypts all traffic via TLS — always use it in production"
-  - "Status codes tell clients exactly what happened with their request"
+  - "HTTP is stateless — the server forgets you the instant it answers, which is what makes it scale."
+  - "Method semantics (safe/idempotent) drive caching, retries, and correctness — not just naming style."
+  - "Status codes are a contract: 4xx means the caller messed up, 5xx means the server did."
+  - "HTTP/2 multiplexing kills HTTP/1.1 head-of-line blocking; HTTP/3 (QUIC) fixes the last TCP-level version."
+  - "HTTPS/TLS encrypts everything and proves server identity — expired certs take the whole site down."
+quiz:
+  - question: "A mobile client sends a POST to create an order, the network drops, and it never sees the response. What is the safest thing for it to do?"
+    options:
+      - "Blindly retry the POST — HTTP methods are always safe to repeat"
+      - "Retry, but use an idempotency key so the server dedupes the duplicate"
+      - "Switch the request to a GET and retry that instead"
+      - "Give up — POSTs can never be retried under any circumstances"
+    answer: 1
+    explanation: "POST is not idempotent, so a naive retry can create two orders. An idempotency key lets the server recognize the repeat and return the original result, making the retry safe."
+  - question: "Your API returns HTTP 200 with {\"error\": \"user not found\"} in the body. Why do experienced engineers consider this a bug?"
+    options:
+      - "200 is slower to send than 404"
+      - "Clients and proxies now have to parse every body to know if the call actually succeeded"
+      - "200 responses can never contain JSON"
+      - "It violates the TLS handshake"
+    answer: 1
+    explanation: "The status code is the contract for success or failure. Hiding an error inside a 200 forces every client, cache, and monitor to parse the body, and breaks tooling that relies on status codes."
+  - question: "A user on a lossy mobile network loads a page over HTTP/2 and one TCP packet is lost. What happens?"
+    options:
+      - "Only the stream that needed that packet stalls; the rest keep flowing"
+      - "All multiplexed streams on that connection stall until the packet is retransmitted"
+      - "The browser silently downgrades to HTTP/1.1"
+      - "Nothing — HTTP/2 has no head-of-line blocking of any kind"
+    answer: 1
+    explanation: "HTTP/2 removes application-level head-of-line blocking but still runs over a single TCP connection, so one lost packet stalls every stream. HTTP/3's QUIC fixes exactly this by handling loss per-stream."
+  - question: "You return 403 Forbidden for a resource the user is not allowed to see — but the resource does not actually exist. What have you leaked?"
+    options:
+      - "Nothing — 403 and 404 are interchangeable"
+      - "The fact that the resource exists, since 403 implies 'it's there, just not for you'"
+      - "The server's TLS private key"
+      - "The user's session cookie"
+    answer: 1
+    explanation: "403 signals the resource exists but access is denied, while 404 says it isn't there. Returning 403 for a non-existent resource confirms its existence — sometimes you deliberately return 404 to hide that."
 ---
 
-## What is HTTP
+<Callout type="analogy">
+Think of HTTP as ordering at a restaurant counter. You (the **client**) walk up
+and place a specific order — "I'll have the #42, no onions" (the **request**).
+The kitchen (the **server**) makes it and hands it back with a receipt (the
+**response**), and the receipt has a code on it: "Ready," "Out of stock," or
+"You didn't pay."
 
-HTTP, the HyperText Transfer Protocol, is the application-layer protocol that powers the web. Every time a browser loads a page, an app fetches data from an API, or a microservice calls another microservice, HTTP is almost certainly involved. It defines how clients and servers communicate: the client sends a request, the server sends a response. Simple in principle, and rich with detail in practice.
+The key twist: the counter has **amnesia**. The moment they hand you your food,
+they forget you exist. Come back for a refill and you have to re-introduce
+yourself every single time. That forgetfulness feels annoying, but it's exactly
+why the restaurant can throw any free cashier at any customer — nobody has to
+remember anybody.
+</Callout>
 
-The most important characteristic of HTTP is that it is stateless. Each request is completely independent — the server does not remember anything about previous requests from the same client. If you log into a website and then load a new page, the server has no built-in way to know that these two requests came from the same person. This is not a design flaw; it is a deliberate choice that makes HTTP servers easy to scale horizontally, since any server in a cluster can handle any request. State is managed at the application layer, typically using cookies, session tokens, or other mechanisms that the client sends with every request.
+## What HTTP is (and why "stateless" matters)
 
-## Request and Response Structure
+**HTTP** (HyperText Transfer Protocol) is the application-layer language of the
+web. Load a page, hit an API, have one microservice call another — HTTP is almost
+always in the middle. The shape is simple: the **client sends a request, the
+server sends a response.**
 
-An HTTP request has three parts: a request line, headers, and an optional body. The request line specifies the method (like GET or POST), the path of the resource (like /api/users/42), and the HTTP version. Headers are key-value pairs that provide metadata: the Host header identifies which server to talk to, Content-Type describes the format of the body, Authorization carries authentication credentials, and dozens of others serve various purposes. The body carries the actual data being sent, and is most common with POST and PUT requests.
+The defining trait is that HTTP is **stateless**. Each request stands alone — the
+server remembers *nothing* about your previous requests.
 
-An HTTP response mirrors this structure. It starts with a status line containing the HTTP version and a status code (like "HTTP/1.1 200 OK"), followed by response headers, and then the response body. The status code is a three-digit number that immediately tells the client what happened. The response headers describe things like the content type, how long the response should be cached, and any cookies the server wants the client to store.
+- Log in, then load a new page: the server has no built-in idea those two
+  requests came from the same person.
+- This isn't a flaw — it's the reason HTTP scales. **Any server in a cluster can
+  handle any request**, because none of them hold your history.
+- State lives in the *application* layer instead: cookies, session tokens, or
+  auth headers that the client re-sends on every request.
 
-## HTTP Methods
+<Callout type="tip">
+This is why load balancers can spray requests across dozens of identical servers
+with zero coordination. The "memory" (your session) rides along in a cookie or a
+JWT, so it doesn't matter which box answers. Statelessness is the quiet
+superpower behind horizontal scaling.
+</Callout>
 
-HTTP defines a set of methods (sometimes called verbs) that indicate the intended action for a request. GET retrieves a resource and should have no side effects — calling it multiple times should return the same result without changing anything. POST creates a new resource or triggers an action; it is not idempotent, meaning calling it multiple times may create multiple resources. PUT replaces a resource entirely; calling it multiple times with the same data is safe because the result is the same each time. PATCH applies a partial update to a resource, changing only the specified fields. DELETE removes a resource.
+## Request and response structure
 
-These semantics matter for caching, proxies, and distributed systems. A caching proxy can safely cache GET responses but must not cache POST responses. A client that loses its connection mid-request can safely retry a GET or PUT, but retrying a POST might cause duplicate orders or double charges. The idempotency guarantees of HTTP methods inform retry logic throughout the stack.
+An HTTP **request** has three parts:
 
-## Status Codes
+- **Request line** — the method (`GET`), the path (`/api/users/42`), and the HTTP version.
+- **Headers** — key-value metadata: `Host` (which server), `Content-Type` (body
+  format), `Authorization` (credentials), and many more.
+- **Body** — the actual payload. Common on `POST` and `PUT`, absent on most `GET`s.
 
-The three-digit status code in an HTTP response carries a structured meaning. Codes in the 200s indicate success: 200 OK is the generic success, 201 Created indicates that a new resource was created (common with POST requests), and 204 No Content indicates success with nothing to return. Codes in the 300s indicate redirects: 301 Moved Permanently tells the client to update its bookmarks, while 302 Found is a temporary redirect. Codes in the 400s indicate client errors — the request was wrong in some way. 400 Bad Request is a generic client error, 401 Unauthorized means the client needs to authenticate, 403 Forbidden means authentication succeeded but access is denied, and 404 Not Found means the resource does not exist. Codes in the 500s indicate server errors: 500 Internal Server Error is the catch-all for server-side failures, while 503 Service Unavailable indicates the server is temporarily unable to handle requests.
+An HTTP **response** mirrors it:
 
-Using status codes correctly is an act of craftsmanship. An API that returns 200 with an error message in the body forces clients to parse every response before knowing if it succeeded. An API that returns 404 when you mean 403 leaks information about resource existence. Getting status codes right makes your APIs predictable and easier to debug.
+- **Status line** — version plus a status code, e.g. `HTTP/1.1 200 OK`.
+- **Headers** — content type, cache rules, cookies to set.
+- **Body** — the data (HTML, JSON, an image, whatever).
+
+The three-digit **status code** is the headline: it tells the client what
+happened before it reads a single byte of the body.
+
+## HTTP methods
+
+Methods (or **verbs**) declare the *intent* of a request. Two properties matter
+more than the names:
+
+- **Safe** — read-only, changes nothing on the server.
+- **Idempotent** — doing it once or ten times leaves the same end state.
+
+| Method | Purpose | Safe? | Idempotent? | Safe to auto-retry? |
+|---|---|---|---|---|
+| GET | Read a resource | Yes | Yes | Yes |
+| POST | Create / trigger an action | No | No | No (risks duplicates) |
+| PUT | Replace a resource fully | No | Yes | Yes |
+| PATCH | Partially update fields | No | No* | Usually no |
+| DELETE | Remove a resource | No | Yes | Yes |
+
+<Callout type="tip">
+These aren't academic. A caching proxy will happily cache a `GET` but must never
+cache a `POST`. When a client's connection drops mid-request, it can safely retry
+a `GET` or `PUT` — but retrying a `POST` might create **two orders or two
+charges**. That's why payment APIs hand out **idempotency keys**: a repeated POST
+with the same key is deduped instead of double-charging.
+</Callout>
+
+## Status codes
+
+The status code carries structured meaning by its first digit:
+
+- **2xx — Success.** `200 OK` (generic), `201 Created` (new resource, often after
+  POST), `204 No Content` (worked, nothing to return).
+- **3xx — Redirect.** `301 Moved Permanently` (update your links), `302 Found`
+  (temporary).
+- **4xx — You (the client) messed up.** `400 Bad Request`, `401 Unauthorized`
+  (log in), `403 Forbidden` (logged in, still not allowed), `404 Not Found`.
+- **5xx — The server messed up.** `500 Internal Server Error` (catch-all),
+  `503 Service Unavailable` (temporarily overloaded or down).
+
+Getting these right is craftsmanship. Return `200` with an error buried in the
+body and you force every client to parse the body just to learn it failed. Return
+`404` when you meant `403` and you leak whether a resource exists. **Precise
+status codes make APIs predictable, cacheable, and debuggable.**
 
 ## HTTP/1.1 vs HTTP/2 vs HTTP/3
 
-HTTP/1.1, standardized in 1997, is a text-based protocol where each request must complete before the next one begins on a given connection — a behavior known as head-of-line blocking. Browsers work around this by opening multiple parallel connections to each server (typically six), but this is wasteful and still limits parallelism. Each new connection requires a TCP handshake, adding latency. Developers spent years using techniques like domain sharding and image sprites to work around these limitations.
+Each version chips away at the same enemy: **latency and head-of-line blocking.**
 
-HTTP/2, released in 2015, addressed these problems with multiplexing: multiple requests and responses can be in flight simultaneously over a single connection, interleaved at the protocol level. There is no head-of-line blocking between different resources. HTTP/2 also introduced header compression (since headers repeat on every request) and server push, which allows servers to proactively send resources the client will need before the client asks for them. HTTP/2 is binary rather than text-based, making it more efficient to parse but less human-readable.
+| | HTTP/1.1 (1997) | HTTP/2 (2015) | HTTP/3 (2022) |
+|---|---|---|---|
+| Format | Text | Binary | Binary |
+| Transport | TCP | TCP | **QUIC over UDP** |
+| Concurrency | One request at a time per connection | **Multiplexed** streams on one connection | Multiplexed streams |
+| Head-of-line blocking | Yes (per connection) | Fixed at app level, **still at TCP level** | Fixed per-stream |
+| Header compression | No | Yes (HPACK) | Yes (QPACK) |
+| Encryption | Optional | Optional (effectively required) | **Mandatory (TLS 1.3)** |
 
-HTTP/3 takes a more radical approach: it replaces TCP as the transport layer with QUIC, a protocol built on top of UDP. QUIC bakes in encryption (TLS 1.3 is mandatory) and moves connection establishment and TLS handshake to happen simultaneously, reducing the latency of new connections. QUIC also solves a remaining head-of-line blocking issue in HTTP/2: since HTTP/2 runs over a single TCP connection, a lost TCP packet blocks all multiplexed streams. QUIC handles packet loss per-stream, so a lost packet for one resource does not block others.
+- **HTTP/1.1** makes each request finish before the next one starts on a
+  connection — **head-of-line blocking**. Browsers hack around it by opening ~6
+  parallel connections per host, but each needs its own TCP handshake. This is why
+  the old web leaned on domain sharding and image sprites.
+- **HTTP/2** adds **multiplexing**: many requests and responses fly over a
+  *single* connection, interleaved. It compresses repeated headers and is binary
+  (faster to parse, less human-readable).
+- **HTTP/3** swaps TCP for **QUIC** (built on UDP). QUIC merges the connection and
+  TLS handshakes into one round trip and handles packet loss *per stream*, so one
+  lost packet no longer stalls every other download.
+
+<Callout type="tip">
+The HTTP/2-over-TCP flaw is real on flaky networks: because everything shares one
+TCP connection, a single dropped packet freezes *all* streams until it's resent.
+On a lossy mobile connection, HTTP/3's per-stream loss handling can noticeably cut
+stalls — a big reason it took off for video and mobile traffic.
+</Callout>
 
 ## HTTPS and TLS
 
-HTTPS is HTTP with encryption. The "S" stands for "Secure," and the encryption is provided by TLS (Transport Layer Security), the modern successor to SSL. When a browser connects to an HTTPS server, they perform a TLS handshake before any HTTP data is exchanged. During this handshake, the server presents a certificate signed by a trusted Certificate Authority (CA), proving that it is actually the entity it claims to be. The client and server then negotiate cryptographic parameters and exchange keys, establishing an encrypted channel.
+**HTTPS** is just HTTP with encryption. The "S" is for Secure, provided by **TLS**
+(Transport Layer Security, SSL's modern successor).
 
-Everything sent over HTTPS — request paths, headers, body, response data — is encrypted and cannot be read by anyone intercepting the traffic. This is not optional for modern applications: browsers flag HTTP sites as "Not Secure," search engines rank HTTPS pages higher, and many browser APIs (like geolocation and service workers) require HTTPS to function at all. Beyond user-facing applications, service-to-service communication within a data center increasingly uses mutual TLS (mTLS), where both parties present certificates, preventing any unauthorized party from impersonating a service.
+- Before any HTTP flows, client and server run a **TLS handshake**.
+- The server presents a **certificate** signed by a trusted **Certificate
+  Authority (CA)**, proving it's really who it claims to be.
+- They negotiate keys and open an **encrypted channel**.
 
-The certificate trust model has real implications for system design. Certificates expire (typically every one to two years, though Let's Encrypt issues 90-day certificates) and must be renewed before they do, or every client will reject the connection. Automating certificate renewal is a basic operational requirement for any production system.
+Everything after that — paths, headers, body, response — is encrypted and
+unreadable to anyone sniffing the wire. This is no longer optional:
+
+- Browsers flag plain HTTP as **"Not Secure."**
+- Search engines rank HTTPS higher.
+- Modern browser APIs (geolocation, service workers) **refuse to run** without it.
+
+Inside data centers, service-to-service traffic increasingly uses **mTLS** (mutual
+TLS), where *both* sides present certificates so no rogue service can impersonate
+another.
+
+## Where this shows up
+
+- **Every web browser** → speaks HTTP/2 or HTTP/3 to load pages with dozens of
+  assets over one multiplexed connection instead of six choked HTTP/1.1 pipes.
+- **REST APIs** → lean hard on methods and status codes so clients, caches, and
+  gateways can reason about requests without reading bodies.
+- **Payment systems (Stripe, PayPal)** → use idempotency keys on POST so a
+  retried charge never double-bills.
+- **CDNs (Cloudflare, Fastly)** → cache `GET`s aggressively using `Cache-Control`
+  headers and status codes; they were early HTTP/3 adopters for mobile speed.
+- **Service meshes (Istio, Linkerd)** → wrap internal calls in mTLS so every hop
+  is encrypted and authenticated.
+
+<Callout type="warning">
+The classic outages here are usually **certificates and semantics**, not code:
+
+- **Expired TLS cert** → every client rejects the connection and the whole site
+  goes dark. Automate renewal (Let's Encrypt issues 90-day certs on purpose) and
+  alert *before* expiry.
+- **Retrying a non-idempotent POST** → duplicate orders and double charges. Use
+  idempotency keys or make the operation idempotent.
+- **Lying with status codes** (200-on-error, 403-vs-404 confusion) → broken
+  clients and leaked information. Treat status codes as a contract, not decoration.
+</Callout>
+
+## Alternatives & related ideas
+
+<Callout type="alternative">
+HTTP's request/response shape isn't the only option. When you need the server to
+*push* data or keep a live connection, reach for **WebSockets** (full-duplex,
+persistent) or **Server-Sent Events** (one-way streaming over plain HTTP). For
+high-throughput internal service calls, **gRPC** rides on HTTP/2 with binary
+Protobuf for speed. And **GraphQL** typically runs over HTTP too — it changes the
+*shape* of the payload, not the transport underneath.
+</Callout>
+
+## Summary
+
+HTTP is the stateless request/response protocol behind the web: the client asks,
+the server answers and immediately forgets, which is precisely what lets you throw
+any server at any request. **Methods** encode intent (and their safe/idempotent
+properties drive caching and retries), while **status codes** form a contract
+where 4xx blames the client and 5xx blames the server. The protocol has evolved to
+kill latency — HTTP/2 multiplexes over one connection and HTTP/3 (QUIC) fixes the
+last TCP-level head-of-line blocking. Wrap it all in **HTTPS/TLS** for encryption
+and identity, and never forget that an expired certificate takes the whole site
+down.

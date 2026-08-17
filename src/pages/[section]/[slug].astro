@@ -2,6 +2,10 @@
 import { getCollection, render, type CollectionEntry } from 'astro:content';
 import TopicLayout from '../../layouts/TopicLayout.astro';
 import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
+import Callout from '../../components/Callout.astro';
+
+// Components made available to every MDX file without a per-file import.
+const mdxComponents = { Callout };
 
 type Section = 'fundamentals' | 'building-blocks' | 'patterns' | 'case-studies' | 'interview-prep';
 
@@ -51,10 +55,11 @@ const data = entry.data;
     takeaways={data.takeaways ?? []}
     interviewTips={data.interviewTips ?? []}
     problemStatement={data.problemStatement ?? ''}
+    quiz={data.quiz ?? []}
     prevTopic={prevTopic}
     nextTopic={nextTopic}
   >
-    <Content />
+    <Content components={mdxComponents} />
   </CaseStudyLayout>
 ) : (
   <TopicLayout
@@ -65,9 +70,10 @@ const data = entry.data;
     diagram={data.diagram}
     relatedTopics={data.relatedTopics}
     takeaways={data.takeaways ?? []}
+    quiz={data.quiz ?? []}
     prevTopic={prevTopic}
     nextTopic={nextTopic}
   >
-    <Content />
+    <Content components={mdxComponents} />
   </TopicLayout>
 )}

@@ -1,54 +1,187 @@
 ---
 title: "Latency vs Throughput"
-description: "Understand the two fundamental performance metrics — and why optimizing for one often degrades the other."
+description: "The two performance numbers every system lives or dies by — and why making one better often makes the other worse."
 order: 5
 difficulty: Beginner
-readTime: "7 min read"
+readTime: "8 min read"
 diagram: LatencyDiagram
 relatedTopics:
   - fundamentals/availability-reliability
   - building-blocks/caching
 takeaways:
-  - "Latency measures time for one request; throughput measures requests per second"
-  - "Optimizing for one often degrades the other — identify your actual bottleneck first"
-  - "p99 latency matters more than average for user experience"
-  - "Tail latency amplifies in microservices — a 1% slow service causes 10%+ slow composite calls"
+  - "Latency = time for ONE request. Throughput = how many requests per second."
+  - "They trade off: batching, queuing, and pooling raise throughput but add latency."
+  - "Find your real bottleneck before optimizing — the fix for one can hurt the other."
+  - "Measure with percentiles (p99), never averages — the tail is where users suffer."
+  - "Tail latency compounds: call 10 services and a 1%-slow each becomes ~10% slow overall."
+quiz:
+  - question: "A checkout API handles 50 requests/second, and each request takes 200ms. Which number is the throughput?"
+    options:
+      - "200ms"
+      - "50 requests/second"
+      - "10 seconds"
+      - "Both are throughput"
+    answer: 1
+    explanation: "Throughput is work per unit time — 50 requests/second. The 200ms is latency: the time for one request to complete."
+  - question: "You batch 10 database writes into a single transaction. What almost always happens?"
+    options:
+      - "Both latency and throughput improve"
+      - "Throughput improves, but per-write latency gets worse"
+      - "Latency improves, but throughput gets worse"
+      - "Nothing changes"
+    answer: 1
+    explanation: "Batching amortizes fixed costs across more work, so throughput rises. But each write must wait for the batch to fill, so its individual latency increases. This is the classic latency/throughput trade-off."
+  - question: "Why do engineers track p99 latency instead of average latency?"
+    options:
+      - "It's easier to compute"
+      - "The average hides slow outliers that real users actually experience"
+      - "p99 is always lower than the average"
+      - "Averages don't work for web servers"
+    answer: 1
+    explanation: "An average can look healthy while 1% of requests take 10 seconds. p99 exposes that tail — and for user-facing systems, the tail is exactly what makes people rage-quit."
+  - question: "Your request fans out to 10 independent microservices, each with a p99 of 100ms. Roughly how often will at least one be slow?"
+    options:
+      - "1% of the time"
+      - "0.1% of the time"
+      - "About 10% of the time"
+      - "It never happens with fast services"
+    answer: 2
+    explanation: "Each service is slow 1% of the time. The chance that at least one of 10 is slow is roughly 1 − 0.99¹⁰ ≈ 9.6%. Tail latency compounds with fan-out — a key reason to shrink the number of calls on the critical path."
 ---
 
-## Latency Defined
+<Callout type="analogy">
+Picture a highway. **Latency** is how long *your* car takes to drive from
+one end to the other. **Throughput** is how many cars get through per minute.
 
-Latency is the time it takes for a single operation to complete, measured from the moment a request is initiated to the moment a response is received. When a user clicks a button and waits for a page to load, they are experiencing latency. When an API call returns in 50 milliseconds, that 50 ms is latency. It is fundamentally a per-operation measurement.
+Adding lanes (throughput) doesn't make any single car faster. And a 200 mph
+sports car (low latency) is useless if only one lane is open and traffic is
+bumper-to-bumper. They're different problems with different fixes — confusing
+them is the #1 reason performance work goes sideways.
+</Callout>
 
-Latency has two components: propagation delay (the time for signals to travel through the physical medium) and processing delay (the time spent computing a result). You can reduce processing delay by making your code faster, using better algorithms, or caching results. You cannot reduce propagation delay below the speed of light — a signal traveling from New York to London and back will always take at least 70 ms just from physics. This physical floor has real consequences: a globally distributed application cannot achieve single-digit millisecond round trips between distant users and servers, no matter how fast the servers are.
+## Latency: the time for one thing
 
-## Throughput Defined
+Latency is how long a single operation takes, measured from the moment you ask
+to the moment you get an answer. Click a button and wait for the page — that
+wait is latency. An API that responds in 50 ms has 50 ms of latency. It's
+always a *per-operation* measurement.
 
-Throughput is the number of operations a system can handle per unit of time — typically expressed as requests per second (RPS) or transactions per second (TPS). Where latency describes a single journey, throughput describes the capacity of a highway. A server that handles 10,000 requests per second has higher throughput than one that handles 100, regardless of how fast each individual request is.
+It has two parts:
 
-Throughput is bounded by the slowest resource in the system — the bottleneck. If a database can execute 5,000 queries per second, no amount of optimization elsewhere can push total system throughput above that number. Identifying and relieving bottlenecks is the core activity of performance engineering. Often the bottleneck shifts: remove a CPU bottleneck and you might expose a database bottleneck; add read replicas and you might expose a network bottleneck. Performance work is iterative.
+- **Propagation delay** — time for the signal to physically travel. This is
+  capped by the speed of light and you cannot beat it. A round trip from New
+  York to London is ~70 ms *from physics alone*, no matter how fast your servers are.
+- **Processing delay** — time spent actually computing the answer. This you
+  *can* shrink: faster code, better algorithms, caching.
 
-## The Relationship Between Them
+<Callout type="tip">
+That physics floor is why global apps put servers close to users (edge / CDNs).
+You can't make London→Sydney faster — so you move the data to Sydney instead.
+</Callout>
 
-Latency and throughput are related but distinct, and optimizing for one frequently degrades the other. The classic example is batching. If you batch ten database writes into a single transaction, throughput increases dramatically — you are doing ten times the work per round trip. But each individual write must wait for the batch to fill before being submitted, which increases its latency. You are trading per-request responsiveness for bulk efficiency.
+## Throughput: how much you can handle
 
-The same trade-off appears in many forms. A queue that smooths out traffic spikes increases throughput by preventing the database from being overwhelmed, but requests that arrive during a spike sit in the queue, increasing their latency. A connection pool limits the number of simultaneous connections to a database, preventing resource exhaustion (and thus improving sustained throughput), but a request that arrives when the pool is full must wait for a connection to become available.
+Throughput is how many operations you finish per unit of time — usually
+requests per second (RPS). If latency is one car's journey, throughput is the
+*capacity of the whole highway*. A server doing 10,000 RPS has far more
+throughput than one doing 100, regardless of how fast any single request is.
 
-The practical lesson is to understand your system's actual bottleneck before choosing an optimization strategy. A system suffering from low throughput needs different solutions than one suffering from high latency, and the right fix for one can make the other worse.
+Throughput is capped by your **slowest resource — the bottleneck**. If your
+database maxes out at 5,000 queries/second, no amount of tuning elsewhere pushes
+the system past that. And bottlenecks move: fix the CPU and the database becomes
+the limit; add read replicas and the network becomes the limit. Performance work
+is a game of whack-a-mole — always chase the *current* bottleneck.
 
-## Numbers Every Engineer Should Know
+## Why they fight each other
 
-Internalizing orders-of-magnitude estimates for common operations changes how you reason about performance. An L1 cache reference takes roughly 1 nanosecond — essentially instantaneous. An L2 cache reference takes around 4 nanoseconds; L3 around 40 nanoseconds. Main memory (RAM) access takes approximately 100 nanoseconds. These numbers are why cache hierarchies exist and why cache misses matter.
+Here's the part that trips people up: **improving one often hurts the other.**
 
-Crossing the process boundary into disk I/O is where latency explodes. An SSD random read takes roughly 100 microseconds — 1,000 times slower than RAM. A spinning disk (HDD) random read takes around 10 milliseconds — another 100x slower still. A network round trip within the same data center takes roughly 0.5 milliseconds. A round trip across the continental United States takes 40–70 milliseconds. A round trip across continents might take 100–200 milliseconds.
+The classic example is **batching**. Bundle ten database writes into one
+transaction and throughput jumps — you're doing 10× the work per round trip.
+But each write now waits for the batch to fill, so its latency goes up. You
+traded snappy responses for bulk efficiency.
 
-These numbers have a clear message: your code almost certainly does not matter. The latency of a few extra function calls or a slightly inefficient algorithm is dwarfed by a single unnecessary disk read or network round trip. The engineers who chase the most performance gains are the ones who eliminate I/O operations, not the ones who micro-optimize CPU cycles.
+The same shape shows up everywhere:
 
-## Optimizing Each
+| Technique | Throughput | Latency |
+|---|---|---|
+| Batching writes | ⬆ higher | ⬇ worse |
+| Queue in front of a service | ⬆ higher (absorbs spikes) | ⬇ worse (requests wait) |
+| Connection pooling | ⬆ higher (no exhaustion) | ⬇ worse when pool is full |
+| Caching | — | ⬆ better |
 
-To reduce latency, the most effective strategies are: eliminating I/O operations through caching; keeping data as close to the processor as possible (in memory rather than on disk, in the same data center rather than across a continent); and reducing the amount of work required to serve a request through denormalization, pre-computation, or smarter data access patterns.
+<Callout type="warning">
+The trap: optimizing the wrong metric. A system that's **slow under light load**
+has a *latency* problem — batching and queuing will make it *worse*. A system
+that **falls over under heavy load** has a *throughput* problem — shaving
+milliseconds off one request won't save it. **Diagnose which one you have before
+you touch anything.**
+</Callout>
 
-To increase throughput, the most effective strategies are: horizontal scaling (adding more servers to share load); asynchronous processing (accepting work immediately and processing it in the background rather than making the caller wait); connection pooling and batching to maximize hardware utilization; and identifying and relieving bottleneck resources.
+## Where this shows up in real systems
 
-Measuring latency correctly requires percentiles, not averages. An average hides the distribution: if 99% of requests complete in 10 ms but 1% take 10 seconds, the average looks fine but real users are having terrible experiences. p50 is the median — half of requests are faster, half are slower. p99 is the 99th percentile — only 1% of requests are slower. p999 is the 99.9th percentile. For user-facing systems, p99 or even p999 is what matters, because users experiencing the tail of your latency distribution are having the worst experience.
+- **Payment / checkout** → latency-critical. Users abandon carts when it's slow;
+  you optimize the single-request path even if it costs some throughput.
+- **Analytics / log ingestion / ETL** → throughput-critical. Nobody watches a
+  single event; you batch aggressively and happily add latency for volume.
+- **Live chat, gaming, video calls** → latency-critical *and* tail-sensitive; a
+  laggy p99 ruins the experience even if the average is fine.
+- **Bulk email / report generation / backups** → throughput-critical; run them
+  async and let each item take as long as it needs.
 
-Tail latency amplifies in microservices in a mathematically predictable way. If a single service has a p99 latency of 100 ms, that means 1% of requests to that service are slow. If you build a response by calling three independent services, the probability that at least one of them is slow is roughly 3%. Call ten services and it approaches 10%. The more dependencies a request has, the more likely it is to be slowed by the tail latency of one of them — which is one reason why reducing the number of service calls in the critical path is valuable, and why the latency profile of each dependency matters.
+## Numbers worth memorizing
+
+Internalizing orders of magnitude changes how you reason. Roughly:
+
+- L1 cache: ~1 ns · Main memory (RAM): ~100 ns
+- SSD random read: ~100 µs (1,000× slower than RAM)
+- Datacenter round trip: ~0.5 ms · Cross-US: ~40–70 ms · Cross-continent: ~100–200 ms
+
+<Callout type="tip">
+The message: **your code probably isn't the problem.** A slightly slow algorithm
+is dwarfed by a single unnecessary disk read or network hop. The biggest wins
+come from *eliminating I/O*, not micro-optimizing CPU cycles.
+</Callout>
+
+## Measuring it right: percentiles, not averages
+
+An average hides the distribution. If 99% of requests finish in 10 ms but 1%
+take 10 seconds, the average still looks okay — while thousands of real users
+are staring at a spinner. Use percentiles:
+
+- **p50** (median) — half of requests are faster than this.
+- **p99** — only 1% are slower. *This* is what user-facing systems live by.
+- **p999** — the 99.9th percentile, for systems where even rare slowness is costly.
+
+And tail latency **compounds** with fan-out. One service with a p99 of 100 ms is
+slow 1% of the time. Build a response from 10 such services and the odds that at
+least one is slow climb to ~10%. That's why reducing the number of calls on the
+critical path is one of the highest-leverage things you can do.
+
+## Handling the pressure points
+
+- **Slow p99 but fine average?** → attack the tail: add caching, timeouts +
+  retries with backoff, and hedge requests (send to two replicas, take the first).
+- **Throughput ceiling?** → scale horizontally, process async, batch, and pool
+  connections. Then find the *next* bottleneck.
+- **Fan-out amplifying the tail?** → cut the number of downstream calls, fetch in
+  parallel instead of serially, and set aggressive per-call timeouts.
+
+## Alternatives & related ideas
+
+<Callout type="alternative">
+When you can't lower true latency, you often change what the user *perceives*:
+**async processing** (accept now, do the work in the background),
+**optimistic UI** (show the result before the server confirms), and
+**streaming / pagination** (deliver the first bytes fast instead of the whole
+payload at once). None reduce the actual number — they hide it well.
+</Callout>
+
+## Summary
+
+Latency is the time for **one** request; throughput is **how many** per second.
+They pull in opposite directions — batching, queuing, and pooling buy throughput
+at the cost of latency, while caching buys latency back. Figure out which metric
+your system is actually failing on, measure it with **p99 (not averages)**, and
+remember that tail latency compounds every time you add a hop. Optimize the
+bottleneck you have, not the one that's easy to see.

@@ -1,0 +1,53 @@
+---
+// Reusable callout box for topic content. Exposed to every MDX file via the
+// `components` prop on <Content />, so authors write <Callout type="...">…</Callout>
+// with no per-file import.
+interface Props {
+  type?: 'analogy' | 'insight' | 'warning' | 'alternative' | 'tip';
+  title?: string;
+}
+const { type = 'insight', title } = Astro.props;
+
+const styles: Record<string, { icon: string; label: string; border: string; bg: string; heading: string }> = {
+  analogy:     { icon: '🔑', label: 'Intuition',    border: '#C7D2FE', bg: '#EEF2FF', heading: '#4338CA' },
+  insight:     { icon: '💡', label: 'Key insight',  border: '#C7D2FE', bg: '#EEF2FF', heading: '#4338CA' },
+  warning:     { icon: '⚠️', label: 'Where it breaks', border: '#FDE68A', bg: '#FFFBEB', heading: '#B45309' },
+  alternative: { icon: '🔀', label: 'Alternatives', border: '#BAE6FD', bg: '#F0F9FF', heading: '#0369A1' },
+  tip:         { icon: '✅', label: 'In practice',   border: '#BBF7D0', bg: '#F0FDF4', heading: '#15803D' },
+};
+const s = styles[type] ?? styles.insight;
+const heading = title ?? s.label;
+---
+<div class="callout" style={`border-color:${s.border};background:${s.bg};`}>
+  <div class="callout-head" style={`color:${s.heading};`}>
+    <span class="callout-icon" aria-hidden="true">{s.icon}</span>
+    <span>{heading}</span>
+  </div>
+  <div class="callout-body">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .callout {
+    margin: 1.5rem 0;
+    border: 1px solid;
+    border-left-width: 4px;
+    border-radius: 0.75rem;
+    padding: 0.9rem 1.1rem;
+  }
+  .callout-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+  }
+  .callout-icon { font-size: 1rem; }
+  .callout-body :global(p) { margin: 0.35rem 0; font-size: 0.95rem; }
+  .callout-body :global(p:first-child) { margin-top: 0; }
+  .callout-body :global(p:last-child) { margin-bottom: 0; }
+  .callout-body :global(ul) { margin: 0.35rem 0; padding-left: 1.1rem; }
+  .callout-body :global(li) { margin: 0.15rem 0; font-size: 0.95rem; }
+</style>

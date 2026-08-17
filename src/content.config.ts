@@ -13,6 +13,16 @@ const topicSchema = z.object({
   takeaways: z.array(z.string()).optional(),
   interviewTips: z.array(z.string()).optional(),
   problemStatement: z.string().optional(),
+  quiz: z
+    .array(
+      z.object({
+        question: z.string(),
+        options: z.array(z.string()),
+        answer: z.number(),
+        explanation: z.string(),
+      })
+    )
+    .optional(),
 });
 
 export const collections = {

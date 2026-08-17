@@ -5,6 +5,14 @@ import KeyTakeaways from '../components/KeyTakeaways.astro';
 import RelatedTopics from '../components/RelatedTopics.astro';
 import TopicNav from '../components/TopicNav.astro';
 import DiagramRenderer from '../components/DiagramRenderer.astro';
+import Quiz from '../components/Quiz.astro';
+
+interface QuizItem {
+  question: string;
+  options: string[];
+  answer: number;
+  explanation: string;
+}
 
 interface Props {
   title: string;
@@ -14,6 +22,7 @@ interface Props {
   diagram: string;
   relatedTopics: string[];
   takeaways: string[];
+  quiz?: QuizItem[];
   prevTopic?: { title: string; href: string };
   nextTopic?: { title: string; href: string };
 }
@@ -26,6 +35,7 @@ const {
   diagram,
   relatedTopics,
   takeaways,
+  quiz = [],
   prevTopic,
   nextTopic,
 } = Astro.props;
@@ -55,6 +65,9 @@ const {
 
     <!-- Key Takeaways -->
     <KeyTakeaways items={takeaways} />
+
+    <!-- Knowledge check -->
+    {quiz.length > 0 && <Quiz items={quiz} />}
 
     <!-- Related Topics -->
     {relatedTopics.length > 0 && <RelatedTopics topics={relatedTopics} />}
