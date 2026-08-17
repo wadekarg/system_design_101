@@ -1,6 +1,6 @@
 ---
 title: "How to Approach Any System Design Question"
-description: "A repeatable five-step framework for structuring your thinking and communicating clearly in any system design interview."
+description: "A repeatable five-phase framework — with a time budget — for turning any ambiguous system design prompt into a clear, well-reasoned architecture."
 order: 1
 difficulty: Beginner
 readTime: "10 min read"
@@ -11,94 +11,139 @@ takeaways:
   - "Back of envelope estimation shows you can reason about scale"
   - "High-level first, details second — interviewers guide the deep-dive"
   - "Communicate your thought process out loud — silence is your enemy"
+quiz:
+  - question: "The interviewer says 'design Twitter.' What should you do in the first five minutes?"
+    options:
+      - "Start drawing the load balancer, app servers, and database"
+      - "Ask which features are in scope and roughly how many users to expect"
+      - "Announce that you'll use Cassandra because it scales well"
+      - "Estimate storage for 300 million users right away"
+    answer: 1
+    explanation: "The first phase is scoping, not building. Nailing down which features are in scope and the rough scale prevents you from designing the wrong system — and it feeds the estimation you do next. Jumping to boxes or a database name skips the step that matters most."
+  - question: "You estimate 300M users each posting once a day. Which is the most useful thing this tells you?"
+    options:
+      - "The exact number of servers you'll need"
+      - "That you should pick a NoSQL database"
+      - "The system is only ~70 writes/sec at peak, so it's not write-heavy"
+      - "Nothing — estimates are too rough to be useful"
+    answer: 2
+    explanation: "Estimation gives you the order of magnitude that filters design decisions. ~70 writes/sec tells you the database write path isn't the pressure point, so you can focus effort elsewhere. It doesn't hand you an exact server count or dictate a specific product."
+  - question: "During the high-level design phase, what should you deliberately NOT do yet?"
+    options:
+      - "Draw the major components and how data flows between them"
+      - "Walk the interviewer through the happy path"
+      - "Pin down the exact database product, cache eviction policy, and API schemas"
+      - "Identify the primary entities and access patterns"
+    answer: 2
+    explanation: "The high-level phase is about a logically correct skeleton, not final details. Locking in a specific product or eviction policy too early wastes time and paints you into a corner before you know the system even holds together. Save those for the deep dive."
+  - question: "You've been silent for 30 seconds, working out a database choice in your head. What's the best move?"
+    options:
+      - "Keep thinking silently until you're certain, then state the answer"
+      - "Pick the first option that comes to mind to break the silence"
+      - "Ask the interviewer to choose for you"
+      - "Narrate your reasoning: the access patterns you're weighing and the trade-offs"
+    answer: 3
+    explanation: "The interview scores your thought process, not just the final answer. Thinking out loud — 'I'm weighing relational vs NoSQL based on the access pattern' — turns dead air into signal. Silence reads as being stuck; guessing to fill it reads as not reasoning at all."
 ---
 
-## The Framework
+<Callout type="analogy">
+Think of yourself as an **architect meeting a client** for the first time. A good architect doesn't grab a pencil and start sketching a house the moment the client sits down. They ask: How many people will live here? What's the budget? Do you need a garage, a home office, room to expand later?
 
-A system design interview typically runs 45 to 60 minutes. In that window, you must convince an experienced engineer that you can take an ambiguous, open-ended problem and turn it into a concrete, reasoned architecture. Most candidates fail not because they lack technical knowledge, but because they jump straight into drawing boxes without stopping to understand what they are actually building.
+Only after the requirements are clear do they draw — first a rough floor plan, then the details of the kitchen the client cares most about. A system design interview is the same: **clarify before you draw.** The candidates who fail almost always start sketching too soon.
+</Callout>
 
-The five-step framework below gives you a repeatable structure. It ensures you spend time where it matters, signal the right skills at the right moments, and avoid the most common interview anti-patterns. Practice it until it becomes muscle memory, so that in a high-pressure interview you can focus your mental energy on the technical substance rather than on managing the conversation.
+## The framework at a glance
 
-The five steps, with rough time allocations for a 45-minute interview:
+A system design interview typically runs **45 to 60 minutes**. In that window you must convince an experienced engineer that you can take an ambiguous, open-ended problem and turn it into a concrete, reasoned architecture.
 
-1. Clarify Requirements — 5 minutes
-2. Estimate Scale — 5 minutes
-3. High-Level Design — 15 minutes
-4. Deep Dive — 15 minutes
-5. Identify Bottlenecks and Trade-offs — 5 minutes
+Most candidates fail not because they lack technical knowledge, but because they **jump straight into drawing boxes** without stopping to understand what they're actually building.
 
-## Step 1: Clarify Requirements (5 min)
+The five phases below give you a repeatable structure. Practice them until they're muscle memory, so in the interview your energy goes to the technical substance — not to managing the conversation.
 
-Before touching the whiteboard or diagramming a single component, spend the first five minutes asking questions. This is the most important step, and the one most candidates skip in their anxiety to appear decisive.
+| Phase | What you do | Time (45-min) | What it signals |
+|---|---|---|---|
+| 1. Clarify requirements | Ask functional + non-functional questions | ~5 min | You think before you act |
+| 2. Estimate scale | Back-of-envelope QPS, storage, bandwidth | ~5 min | You reason about scale |
+| 3. High-level design | Draw components and data flow | ~15 min | You can architect a whole system |
+| 4. Deep dive | Detail 1–2 components the interviewer picks | ~15 min | You have real depth |
+| 5. Bottlenecks & trade-offs | Critique your own design | ~5 min | You know how systems actually fail |
 
-There are two categories of requirements to nail down.
+## Phase 1: Clarify requirements (~5 min)
 
-**Functional requirements** define what the system must do. Ask: What are the core features? Which are in scope for this interview and which are explicitly out of scope? If the prompt is "design Twitter," clarify whether you need to handle direct messages, trends, search, or just the core tweet/timeline flow. Getting this wrong means designing a system for a different problem than the interviewer intended.
+Before touching the whiteboard, spend the first five minutes **asking questions**. This is the most important phase, and the one most candidates skip in their rush to look decisive.
 
-**Non-functional requirements** define how well the system must do it. Ask: How many users are we targeting — thousands, millions, hundreds of millions? What is the acceptable read latency? Does the system need to be strongly consistent, or is eventual consistency acceptable? Is this read-heavy or write-heavy? Are there regulatory constraints around data residency or retention?
+There are two categories to nail down:
 
-Finally, clarify **constraints**. Is this a greenfield design or are there existing systems to integrate with? Are there technology choices already made?
+- **Functional requirements** — *what* the system must do. What are the core features? Which are in scope, which are explicitly out? For "design Twitter," clarify whether you handle DMs, trends, and search — or just the core tweet/timeline flow.
+- **Non-functional requirements** — *how well* it must do it. How many users: thousands, millions, hundreds of millions? Acceptable read latency? Strong or eventual consistency? Read-heavy or write-heavy? Any data-residency or retention rules?
 
-This step does three things simultaneously: it ensures you build the right system, it signals that you think before you act, and it gives you the inputs you need for estimation in Step 2. An interviewer who sees you ask sharp clarifying questions already has a positive impression before you draw a single box.
+Then clarify **constraints**: greenfield or integrating with existing systems? Any technology choices already locked in?
 
-## Step 2: Estimate Scale (5 min)
+This phase does three things at once: it ensures you build the *right* system, it signals that you think before acting, and it gives you the inputs for estimation next.
 
-Scale estimation — "back of the envelope" — is a filter for design decisions. The database choice, the caching strategy, the replication topology — all of these depend on whether you are handling 1,000 requests per second or 1,000,000. Guessing without estimating is like choosing between walking and flying a plane based on where you're going without knowing whether the destination is 2 km or 2,000 km away.
+<Callout type="tip">
+In practice: keep a mental checklist — **scope, scale, consistency, read/write ratio, constraints**. An interviewer who watches you ask sharp questions already has a positive impression before you draw a single box.
+</Callout>
 
-You do not need precision. You need the right order of magnitude. Estimate:
+## Phase 2: Estimate scale (~5 min)
 
-- **DAU (Daily Active Users):** how many people use the system on a typical day?
-- **QPS (Queries per Second):** `QPS = DAU × (actions per user per day) / 86400`
-- **Peak QPS:** roughly 2x the average, to account for traffic spikes
-- **Storage:** how much data is written per second, and for how long must it be retained?
-- **Bandwidth:** how much data moves in and out per second?
+Scale estimation — "back of the envelope" — is a **filter for design decisions**. Your database choice, caching strategy, and replication topology all depend on whether you're handling 1,000 requests per second or 1,000,000.
 
-Round aggressively. `86,400` seconds in a day is close enough to `100,000` for this purpose. If 300 million users each post once a day on average, that is 3 million posts per day, roughly 35 writes per second, and a peak of about 70 writes per second. Those numbers tell you this is not a write-heavy system at the database level — you can design accordingly.
+You don't need precision. You need the right **order of magnitude**. Estimate:
 
-Doing this step signals seniority. Junior engineers skip it and end up defending a design that would either collapse at the stated scale or be embarrassingly over-engineered for the actual load.
+- **DAU (Daily Active Users)** — how many people use it on a typical day?
+- **QPS (Queries per Second)** — `QPS = DAU × (actions per user per day) / 86,400`
+- **Peak QPS** — roughly 2× the average, to cover traffic spikes
+- **Storage** — data written per second × how long you retain it
+- **Bandwidth** — data in and out per second
 
-## Step 3: High-Level Design (15 min)
+Round aggressively. `86,400` seconds/day is close enough to `100,000`. If 300M users each post once daily, that's ~3M posts/day ≈ **35 writes/sec**, peaking near **70 writes/sec**. That tells you this *isn't* a write-heavy system at the database level — so you can design accordingly.
 
-Now you draw. The goal at this stage is to get a working, correct skeleton on paper — not a detailed one. Start with the major components and the data flow between them.
+<Callout type="tip">
+In practice: doing this phase signals seniority. Junior engineers skip it and end up defending a design that would either collapse at the stated scale or be wildly over-engineered for the actual load.
+</Callout>
 
-Draw boxes for the obvious actors and services: clients, load balancer, application servers, primary database, cache, object storage if relevant, message queue if relevant. Then draw arrows showing how data moves. A user posts a tweet: where does the request land first? How does it reach the database? How does another user's timeline read eventually reflect that tweet?
+## Phase 3: High-level design (~15 min)
 
-Stay at a high level of abstraction. Do not choose a specific database product yet. Do not specify cache eviction policies. Do not define API schemas. The purpose of this phase is to ensure the system is logically correct — that you have identified all the necessary pieces and they are connected sensibly. A design that is logically incomplete at the high level cannot be saved by clever details later.
+Now you draw. The goal is a **working, correct skeleton** — not a detailed one. Start with the major components and the data flow between them.
 
-Walk the interviewer through your diagram as you draw it. Narrate the happy path first: what happens when everything works. Then briefly note where the critical data boundaries are — where does the system cross a process boundary, a network boundary, a consistency boundary.
+Draw boxes for the obvious actors: clients, load balancer, application servers, primary database, cache, and — if relevant — object storage and a message queue. Then draw arrows showing how data moves. A user posts a tweet: where does the request land first? How does it reach the database? How does another user's timeline eventually reflect it?
 
-This is also where you make a first pass at your data model. What are the primary entities? What are the access patterns? Knowing whether you primarily query by user ID, by time, or by both will influence your storage choices in the deep dive.
+**Stay abstract.** Don't pick a specific database product, cache eviction policy, or API schema yet. This phase proves the system is *logically correct* — all the pieces exist and connect sensibly. A design that's logically incomplete here can't be rescued by clever details later.
 
-## Step 4: Deep Dive (15 min)
+Walk the interviewer through the diagram as you draw. Narrate the **happy path** first, then note the critical boundaries — where the system crosses a process, network, or consistency boundary. This is also where you make a first pass at your **data model**: primary entities and access patterns. Knowing whether you query by user ID, by time, or both will shape your storage choices in the deep dive.
 
-After the high-level sketch, the interviewer will typically steer you toward one or two specific components for a deeper examination. Common deep-dive targets include: the database schema and choice, the caching layer, the API design, and any asynchronous processing or messaging system.
+## Phase 4: Deep dive (~15 min)
 
-Be prepared to go deep on any of the following areas:
+After the sketch, the interviewer steers you toward **one or two components** for a closer look. Be ready to go deep on any of these:
 
-**Database choice:** Relational databases offer ACID transactions, structured schemas, and complex queries via SQL. NoSQL databases offer flexible schemas, horizontal scale-out, and tuning for specific access patterns. The choice depends on your data model, your consistency requirements, and your scale. Be ready to defend whichever you chose, including acknowledging what you give up.
+- **Database choice** — Relational gives you ACID transactions, structured schemas, and rich SQL queries. NoSQL gives you flexible schemas, horizontal scale-out, and tuning for specific access patterns. Defend whichever you chose *and* name what you give up.
+- **Caching strategy** — What do you cache, for how long, and where (in-process, dedicated server, or CDN)? What happens on a miss? What's your invalidation strategy when the underlying data changes?
+- **API design** — Key endpoints, request/response shapes, pagination for large results, authentication, and versioning.
 
-**Caching strategy:** What do you cache? How long? Where does the cache live — in-process, dedicated cache server, or CDN? What happens on a cache miss? What is your invalidation strategy when the underlying data changes? These are not hypothetical questions; they are decisions that make or break production systems.
+Answer deep-dive questions with the same structure every time: **state the requirement, explain your choice, name the trade-off** you're accepting.
 
-**API design:** Define the key endpoints. What are the request and response shapes? How do you handle pagination for large result sets? What authentication scheme do you use? How do you version the API?
+## Phase 5: Identify bottlenecks and trade-offs (~5 min)
 
-Answer the deep dive questions with the same structure you used in Step 1: state your requirement, explain your choice, and name the trade-off you are accepting.
+In the final minutes, turn a critical eye on your **own** design. Finding your weak spots before the interviewer does is a mark of experience.
 
-## Step 5: Identify Bottlenecks and Trade-offs (5 min)
+- **Single points of failure** — components with no redundancy whose failure takes the system down. The primary database is the classic one; say how you'd handle it (replication, failover).
+- **Behavior at 10× scale** — which component breaks first? The database, the app tier, the network? How would you address it?
+- **Your trade-offs** — name them explicitly: *"I chose async replication for low write latency, accepting that reads may see slightly stale data."* Naming trade-offs shows you understand the system's real behavior, not just its happy path.
 
-In the final minutes, turn a critical eye on your own design. Every system has bottlenecks — places where load concentrates and which will fail first. Finding yours before the interviewer does is a sign of experience.
+<Callout type="warning">
+The single biggest mistake: **jumping straight to the solution** — drawing boxes or blurting "I'll use Cassandra" before you've clarified requirements. It makes you look like you can code but can't *design*, and you often end up building the wrong system entirely.
 
-Walk through the system looking for single points of failure: components that have no redundancy and whose failure would take the system down. The primary database is the classic example. Your design should address how you handle its failure — through replication, failover, or another mechanism.
+How to avoid it: force yourself to finish Phase 1 before your pen touches the board. If you catch yourself designing early, stop and ask one more clarifying question. The discipline is the signal.
+</Callout>
 
-Ask yourself what happens at 10x the scale you designed for. Which component becomes the bottleneck first? The database? The application server? The network? How would you address it?
+## Other common mistakes to avoid
 
-Identify the places where you made trade-offs. "I chose async replication for low write latency, accepting that reads might see slightly stale data." "I use a cache with a 5-minute TTL, which means a user might see a profile update after up to 5 minutes of delay." Naming your trade-offs shows you understand the system's actual behavior, not just its happy path.
+- **Silence** — thinking quietly for 30 seconds looks like being stuck. Narrate: *"I'm weighing relational vs NoSQL here — let me think through the access patterns."*
+- **Whiteboard neglect** — draw as you talk. A messy, clearly-labeled, evolving diagram beats a perfect mental model the interviewer can't see.
+- **Asserting without reasoning** — *"I'll use Cassandra"* means nothing without *"because we need geographic replication and always query by partition key."*
+- **Skipping failure modes** — a system that only works when everything is healthy isn't a production system. Always discuss at least one failure scenario.
 
-## Common Mistakes
+## Summary
 
-A few pitfalls to avoid throughout the interview:
-
-- **Jumping to solutions:** The single most common mistake. Discipline yourself to complete Step 1 fully before drawing anything.
-- **Silence:** Thinking in silence for 30 seconds looks like being stuck. Narrate your reasoning: "I'm considering whether to use a relational or NoSQL database here — let me think through the access patterns."
-- **Whiteboard neglect:** Draw as you talk. A messy evolving diagram with clear labels communicates more than a perfect mental model the interviewer cannot see.
-- **Asserting without reasoning:** "I'll use Cassandra" means nothing without "because we need geographic replication and our access pattern is always by partition key, which makes Cassandra's data model a natural fit."
-- **Skipping failure modes:** A system that only works when everything is healthy is not a production system. Always discuss at least one failure scenario.
+Treat the interview like an architect meeting a client: **clarify before you draw.** Move through five phases on a rough time budget — clarify requirements (~5 min), estimate scale (~5 min), high-level design (~15 min), deep dive (~15 min), and bottlenecks & trade-offs (~5 min). Stay abstract early and detailed late, and let the interviewer steer the deep dive. Above all, **narrate your reasoning out loud** and never jump to a solution before you understand the problem — the process is what's being scored, not just the final diagram.

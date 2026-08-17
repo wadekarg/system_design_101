@@ -1,9 +1,9 @@
 ---
 title: "Capacity Estimation"
-description: "Learn to estimate traffic, storage, and bandwidth for any system — the back-of-the-envelope skill that separates senior engineers from the rest."
+description: "Back-of-the-envelope math for traffic, storage, and bandwidth — the quick, confident estimation that tells you whether you're designing for one server or a thousand."
 order: 2
 difficulty: Intermediate
-readTime: "8 min read"
+readTime: "9 min read"
 diagram: CapacityDiagram
 relatedTopics: []
 takeaways:
@@ -11,130 +11,203 @@ takeaways:
   - "Always calculate peak QPS (2x average) for capacity planning"
   - "Work in powers of 10 — you don't need exact numbers, just the right order of magnitude"
   - "Doing capacity estimation signals seniority — interviewers notice when you skip it"
+quiz:
+  - question: "A messaging app has 50 million DAU and each user sends 40 messages per day. Roughly what is the average write QPS?"
+    options:
+      - "About 23,000 messages/second"
+      - "About 2,300 messages/second"
+      - "About 230,000 messages/second"
+      - "About 500 messages/second"
+    answer: 0
+    explanation: "50M × 40 = 2 billion messages/day. Divide by ~86,400 (round to 100,000): 2,000,000,000 ÷ 100,000 = 20,000, and using the exact 86,400 it's ~23,000/second. Rounding seconds-in-a-day to 100k keeps the mental math trivial and stays within your margin of error."
+  - question: "You estimated average write QPS at 34/second. What number should you actually design the write path to handle?"
+    options:
+      - "34/second — the average is what matters"
+      - "3.4/second — most users are idle"
+      - "About 70/second — peak is roughly 2x average"
+      - "340/second — always multiply by 10"
+    answer: 2
+    explanation: "Traffic is bursty, so you size for peak, not average. The standard rule of thumb is peak ≈ 2x average, giving ~70/second. Designing only for the average means falling over exactly when a spike hits — the worst possible time."
+  - question: "A video platform ingests 500,000 uploads/day averaging 50 MB each, kept for 3 years across 3 replicas. Which order of magnitude is the raw storage?"
+    options:
+      - "About 27 TB total"
+      - "About 27 PB total"
+      - "About 82 PB total"
+      - "About 250 TB total"
+    answer: 1
+    explanation: "500,000 × 50 MB = 25 TB/day. Over 3 years: 25 TB × ~1,000 days ≈ 25 PB. Then ×3 for replication ≈ 75–82 PB — so ~27 PB is the closest order of magnitude among the choices, and the real lesson is that replication and retention are what push you into petabytes."
+  - question: "Your estimate shows 340 read QPS and 34 write QPS. Which conclusion best uses that read:write ratio?"
+    options:
+      - "The database is the bottleneck; shard writes immediately"
+      - "Reads dominate 10:1, so invest in caching and read replicas"
+      - "Traffic is too low to matter; skip capacity planning"
+      - "Writes are 10x reads, so optimize the write path first"
+    answer: 1
+    explanation: "Reads outnumber writes 10:1, which is typical for social/feed systems. That points you toward caching and read replicas to absorb read load, while the modest 34 write QPS fits comfortably on a single primary. The ratio, not the raw number, tells you where to spend effort."
 ---
 
-## Why Estimate
+<Callout type="analogy">
+Capacity estimation is like planning groceries for a party. You don't count out exactly 137 chips per guest — you think "about 30 people, roughly 2 handfuls each, so a few big bags." Rough, but good enough to know whether you need one cart or three.
 
-Every major design decision in a distributed system is scale-dependent. The choice between a single database server and a sharded cluster, between synchronous and asynchronous replication, between storing data in a relational database or an object store — all of these hinge on the numbers. A system serving 10,000 users per day can be a single server with a Postgres instance. A system serving 300 million users per day needs a fundamentally different architecture.
+The goal isn't precision. It's landing on the **right order of magnitude** so you don't show up with a single bag of chips for a hundred hungry guests — or, in system terms, a single database for 300 million users.
+</Callout>
 
-Capacity estimation is not about being precise. Production engineers have monitoring, load tests, and years of operational data to make precise forecasts. In an interview, the goal is to establish the right order of magnitude — to know whether you are designing for tens, thousands, or millions of requests per second, and whether your storage needs are gigabytes, terabytes, or petabytes. Getting the order of magnitude right narrows the design space dramatically and prevents you from defending an architecture that would collapse under actual load.
+## Why estimate at all
 
-Interviewers specifically watch for this step. Engineers who skip straight to the design reveal that they design by intuition rather than reasoning. Engineers who do a quick, confident estimation — even if imprecise — signal that they have built systems at scale and understand that load shapes architecture.
+Every major design decision is **scale-dependent**. Single database vs. sharded cluster, sync vs. async replication, relational store vs. object store — all of them hinge on the numbers. A system serving 10,000 users a day can be one server with a Postgres instance. A system serving 300 million users a day needs a fundamentally different architecture.
 
-## Powers of Two Cheat Sheet
+You're not aiming for precision. Production teams have monitoring and load tests for that. In an interview, you just need to know whether you're designing for **tens, thousands, or millions** of requests per second, and whether storage is in **gigabytes, terabytes, or petabytes**. Getting the magnitude right narrows the design space and stops you from defending an architecture that would collapse under real load.
 
-Working with large numbers is easier if you anchor to powers of two and their approximate decimal equivalents. Memorize these:
+Interviewers watch for this step specifically. Skip straight to boxes and you look like someone who designs by intuition. Do a quick, confident estimate — even a rough one — and you signal that you've built systems at scale and understand that **load shapes architecture**.
 
-| Power | Approximate value | Common name |
-|-------|------------------|-------------|
-| 2^10  | 1,000            | 1 Kilobyte (KB) |
-| 2^20  | 1,000,000        | 1 Megabyte (MB) |
-| 2^30  | 1,000,000,000    | 1 Gigabyte (GB) |
-| 2^40  | ~1 trillion      | 1 Terabyte (TB) |
+## The building blocks: sizes and powers of ten
 
-For memory sizing, also memorize common data type sizes:
+Work in powers of ten and anchor to a few memorized data sizes. That's the whole trick.
 
-- 1 character (ASCII) = 1 byte
-- 1 integer (32-bit) = 4 bytes
-- 1 long integer (64-bit) = 8 bytes
-- 1 UUID = 16 bytes
-- 1 timestamp = 8 bytes
-- 1 typical URL = ~100 bytes
+| Unit | Bytes | Rough shorthand |
+|------|-------|-----------------|
+| 1 KB | ~10^3 | thousand |
+| 1 MB | ~10^6 | million |
+| 1 GB | ~10^9 | billion |
+| 1 TB | ~10^12 | trillion |
+| 1 PB | ~10^15 | quadrillion |
 
-These are your building blocks. When estimating the size of a database row, add up the fields. A tweet might have a user ID (8 bytes), a timestamp (8 bytes), and up to 280 characters of text (280 bytes): call it 300 bytes per tweet. That simple estimate becomes the foundation for storage calculations.
+Common field sizes to memorize:
 
-## Traffic Estimation
+| Data type | Size |
+|-----------|------|
+| 1 ASCII character | 1 byte |
+| 32-bit integer | 4 bytes |
+| 64-bit long / timestamp | 8 bytes |
+| UUID | 16 bytes |
+| Typical URL | ~100 bytes |
+| A 280-char tweet + metadata | ~300 bytes |
 
-Traffic estimation starts with your user base and works forward to requests per second.
+<Callout type="tip">
+**In practice — the powers-of-ten cheat sheet.** Round everything to the nearest power of ten and let the zeros do the work. A tweet is "a few hundred bytes," a photo is "about a megabyte," a video is "tens of megabytes." Add up fields to size a row, then multiply. If you're ever off by less than 10x, you're fine — the design decision won't change.
+</Callout>
 
-**Step 1: Establish Daily Active Users (DAU).** This should come from your requirements clarification. If the interviewer says "design Twitter at its current scale," you can state that Twitter has roughly 300 million DAU and proceed. If they say "design a system for a new social network starting out," anchor to a plausible growth target and state your assumption.
+## Traffic estimation: from users to QPS
 
-**Step 2: Estimate actions per user per day.** How many times does the average user perform the core write operation? For a social network, users might post a few times a week, so roughly 0.1 to 1 post per day per user. For a messaging app, users might send dozens of messages per day.
+Traffic estimation walks forward from your user base to requests per second in a few steps.
 
-**Step 3: Calculate average QPS.**
+- **Step 1 — Daily Active Users (DAU).** Pull this from requirements. "Design Twitter at current scale" → state ~300M DAU and move on. A brand-new product → anchor to a plausible target and say so out loud.
+- **Step 2 — Actions per user per day.** How often does the average user do the core write? A social user posts maybe 0.1–1 time/day; a chat user sends dozens of messages/day.
+- **Step 3 — Average QPS.** Divide total daily actions by seconds in a day.
+- **Step 4 — Peak QPS.** Multiply average by 2.
+- **Step 5 — Read/write ratio.** Multiply write QPS by the ratio to get read QPS.
+
+<Callout type="tip">
+**In practice — the one formula that matters.**
 
 ```
-QPS = DAU × actions per user per day / 86,400 seconds
+QPS = DAU × actions per user per day ÷ 86,400
 ```
 
-You can round 86,400 to 100,000 for simplicity — the resulting estimate is well within the margin of error of your other assumptions.
+Round **86,400 seconds/day to ~100,000 (10^5)**. So "1 million actions/day" is ~10 QPS, "1 billion/day" is ~10,000 QPS. This single approximation turns messy division into shifting zeros.
+</Callout>
 
-**Step 4: Calculate peak QPS.** Traffic is never uniform. Social networks spike during major events; e-commerce sites spike during sales; news sites spike when breaking news hits. A safe rule of thumb is that peak traffic is 2x the daily average:
+**Peak, not average.** Traffic is never uniform — social spikes on big events, e-commerce on sales, news on breaking stories. Size for the peak:
 
 ```
 Peak QPS = 2 × Average QPS
 ```
 
-Design your system to handle peak QPS, not average QPS. A system that handles average load but falls over during traffic spikes is a system that fails at the worst possible times.
+A system that survives average load but dies on spikes fails at the worst possible moment.
 
-**Step 5: Account for read/write ratio.** Most systems are read-heavy. A social media timeline is read far more than it is written. If your write QPS is 34 per second and you have a 10:1 read-to-write ratio, your read QPS is 340 per second. These numbers drive different capacity decisions: write QPS drives your primary database and write path, read QPS drives your caching and read replica strategy.
+**Read/write ratio.** Most systems are **read-heavy**. A timeline is read far more than it's written. If write QPS is 34 and the ratio is 10:1, read QPS is 340. These drive different decisions: write QPS sizes your **primary database and write path**; read QPS sizes your **caching and read replicas**.
 
-## Storage Estimation
+| System | Typical read:write | Why |
+|--------|-------------------|-----|
+| Social feed / timeline | ~100:1 | Everyone scrolls, few post |
+| E-commerce catalog | ~50:1 | Browsing vastly exceeds buying |
+| Messaging | ~1:1 | Every send is roughly one read |
+| Analytics ingestion | write-heavy | Writes flood in, reads are batched |
 
-Once you know your write rate, estimating storage is a multiplication:
+## Storage estimation
+
+Once you know the write rate, storage is just multiplication:
 
 ```
-Storage per day = write QPS × record size × 86,400
+Storage per day  = write QPS × record size × 86,400
 Storage per year = Storage per day × 365
 ```
 
-Factor in retention. If you keep data for five years, multiply by five. If your data is append-only (logs, events, messages), it grows without bound until you archive or delete old records. State your retention assumption explicitly — it is a design decision, not a given.
+Then apply two multipliers people forget:
 
-Also account for replication. If you replicate your data across three nodes for durability, your actual storage footprint is three times your logical data size. Object stores like S3 typically handle replication internally, but if you are provisioning raw disk for a database cluster, the replication factor matters.
+- **Retention.** Keep data 5 years? Multiply by 5. Append-only data (logs, events, messages) grows without bound until you archive or delete — so state your retention assumption explicitly. It's a design decision, not a given.
+- **Replication.** Store 3 copies for durability and your real footprint is 3x the logical size. Object stores like S3 handle this internally, but if you're provisioning raw disk for a database cluster, the replication factor matters.
 
-## Bandwidth Estimation
+## Bandwidth estimation
 
-Bandwidth measures how much data flows across the network per unit of time. It is separate from QPS because different requests have very different payload sizes.
-
-```
-Inbound bandwidth = write QPS × average write payload size
-Outbound bandwidth = read QPS × average read response size
-```
-
-For a system serving many small reads (user profiles, short posts), outbound bandwidth is moderate. For a system serving large media files (video streaming, high-resolution images), outbound bandwidth dominates and becomes a primary capacity concern. Content delivery networks (CDNs) exist largely to move bandwidth closer to users and reduce the load on origin servers — and that design decision is only obvious if you have estimated your bandwidth first.
-
-## Example: Design Twitter
-
-Let us work through a realistic Twitter-scale capacity estimation to see all the pieces together.
-
-**Given:** Twitter has approximately 300 million Daily Active Users. About 1% of users post a tweet on a given day. The average tweet is 300 bytes of text. About 10% of tweets include a media attachment averaging 1 MB in size. The read-to-write ratio for tweets is 10:1.
-
-**Step 1 — Write QPS:**
+Bandwidth is data flowing over the network per second. It's separate from QPS because payloads vary wildly in size.
 
 ```
-Tweets per day = 300,000,000 × 1% = 3,000,000
-Average write QPS = 3,000,000 / 86,400 ≈ 34 tweets/second
-Peak write QPS = 34 × 2 ≈ 70 tweets/second
+Inbound  bandwidth = write QPS × average write payload
+Outbound bandwidth = read  QPS × average read response
 ```
 
-The write path is not particularly demanding at 70 peak writes per second. A single well-provisioned database can handle this easily. The read path is the challenge.
+Many small reads (profiles, short posts) → modest outbound. Large media (video, hi-res images) → outbound **dominates** and becomes the primary concern. CDNs exist largely to push that bandwidth closer to users and spare the origin — a decision that's only obvious once you've estimated bandwidth first.
 
-**Step 2 — Read QPS:**
+## Where estimation changes the design
+
+- **Small text records (tweets, comments)** → storage is trivial; the challenge is read fan-out and caching.
+- **Large media (video, images, backups)** → storage and bandwidth explode into petabytes; pushes you to object storage + CDN + compression.
+- **Append-only streams (logs, events)** → unbounded growth; forces retention policies, tiering, and archival.
+- **Bursty consumer traffic (social, e-commerce)** → the 2x peak multiplier drives autoscaling and queue buffering.
+
+## The biggest mistake
+
+<Callout type="warning">
+**The #1 error: designing for average load and forgetting peak.** Your math says 34 QPS, you provision for 34, and the system tips over the moment a spike hits 3x average during a viral event. Always carry the **peak (≥2x)** number forward into every capacity decision.
+
+A close second: **skipping replication and retention**. A "320 GB/year" text estimate quietly becomes a multi-petabyte problem once you add media, 3x replicas, and 5-year retention. State those multipliers out loud so they don't ambush you.
+</Callout>
+
+## Worked example: Twitter scale
+
+Let's put it all together on a Twitter-scale estimate.
+
+**Given:** ~300M DAU; ~1% post per day; average tweet ~300 bytes of text; ~10% of tweets carry a ~1 MB media attachment; read:write ratio 10:1.
+
+**Write QPS:**
 
 ```
-Read QPS = 34 × 10 = 340 reads/second
-Peak read QPS = 340 × 2 = 680 reads/second
+Tweets/day        = 300,000,000 × 1%     = 3,000,000
+Average write QPS = 3,000,000 ÷ 86,400   ≈ 34/second
+Peak write QPS    = 34 × 2               ≈ 70/second
 ```
 
-680 read QPS is also manageable, but remember that a single timeline request might fan out to many individual tweet reads, especially for a user following thousands of accounts. This is why Twitter's real engineering challenge is the fan-out problem, not raw QPS.
+70 peak writes/second is undemanding — a single well-provisioned database handles it easily. The read path is where it gets interesting.
 
-**Step 3 — Tweet text storage:**
-
-```
-Daily text storage = 34 writes/second × 300 bytes × 86,400 seconds ≈ 880 MB/day
-Annual text storage ≈ 880 MB × 365 ≈ 320 GB/year
-```
-
-320 GB per year of text is very manageable by modern standards. A single high-end SSD can hold years of tweet text. The bottleneck is not storage of text.
-
-**Step 4 — Media storage:**
+**Read QPS:**
 
 ```
-Tweets with media per day = 3,000,000 × 10% = 300,000
-Media storage per day = 300,000 × 1 MB = 300,000 MB ≈ 293 GB/day
-Annual media storage ≈ 293 GB × 365 ≈ 107 TB/year
+Read QPS      = 34 × 10   = 340/second
+Peak read QPS = 340 × 2   = 680/second
 ```
 
-107 terabytes per year of media is a very different proposition. This immediately explains why Twitter (and every large social network) stores media in object stores like S3 rather than in the primary database, serves it through CDNs, and compresses images aggressively. The estimation revealed the architectural driver: media, not text, is the storage and bandwidth problem.
+680 read QPS is still manageable, but a single timeline request may fan out to many individual tweet reads for someone following thousands of accounts. That's why Twitter's real challenge is **fan-out**, not raw QPS.
 
-This is the power of capacity estimation. Working through the numbers, you discovered the real design constraint in under five minutes — before drawing a single box.
+**Text storage:**
+
+```
+Daily  = 34 × 300 bytes × 86,400  ≈ 880 MB/day
+Yearly = 880 MB × 365             ≈ 320 GB/year
+```
+
+320 GB/year of text is trivial — years of tweets fit on one SSD. Text is not the bottleneck.
+
+**Media storage:**
+
+```
+Tweets with media/day = 3,000,000 × 10%   = 300,000
+Media/day             = 300,000 × 1 MB    ≈ 293 GB/day
+Media/year            = 293 GB × 365       ≈ 107 TB/year
+```
+
+107 TB/year is a completely different animal. That single number explains why Twitter stores media in object stores like S3 (not the primary DB), serves it through CDNs, and compresses aggressively. The estimate revealed the real architectural driver — **media, not text** — in under five minutes, before drawing a single box.
+
+## Summary
+
+Capacity estimation is party-planning math for systems: aim for the **right order of magnitude**, not precision. Start from DAU, compute **QPS = DAU × actions ÷ 86,400** (round the seconds to ~100k), and always carry the **2x peak** number forward. Multiply write QPS by record size for storage, then apply **retention and replication** multipliers that quietly turn gigabytes into petabytes. Split traffic by **read:write ratio** to know whether to invest in caching or the write path — and let the numbers, computed in a few confident minutes, reveal the real bottleneck before you draw a single box.

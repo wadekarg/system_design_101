@@ -17,19 +17,19 @@ takeaways:
 quiz:
   - question: "Your app streams large video uploads, so some connections stay open for minutes while others finish in milliseconds. Which balancing algorithm keeps load evenest?"
     options:
-      - "Round Robin"
       - "Least Connections"
+      - "Round Robin"
       - "IP Hash"
       - "Random"
-    answer: 1
+    answer: 0
     explanation: "Least Connections sends each new request to the server with the fewest open connections, so a box tied up with slow uploads stops receiving new ones. Round Robin would keep piling requests onto a busy server because it ignores how long each request lasts."
   - question: "You need to route `/api/*` to your app servers and `/static/*` to a file-serving pool, based on the URL path. What must your load balancer be?"
     options:
       - "A Layer 4 (TCP) load balancer"
-      - "A Layer 7 (HTTP) load balancer"
       - "A DNS round-robin setup"
       - "Any load balancer can do this"
-    answer: 1
+      - "A Layer 7 (HTTP) load balancer"
+    answer: 3
     explanation: "Only a Layer 7 load balancer parses the HTTP request, so only it can see the URL path and route on it. An L4 balancer sees just IPs and ports — it has no idea what `/api/` even means."
   - question: "A backend's `/health` endpoint returns 200 OK, but it always returns 200 without checking its database connection. The database is down. What happens?"
     options:

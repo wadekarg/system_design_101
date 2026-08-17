@@ -26,18 +26,18 @@ quiz:
   - question: "You track how many times each video is viewed. Writes are constant, an exact real-time count doesn't matter, and losing a few counts in a crash is tolerable. Which write strategy fits best?"
     options:
       - "Write-through, so the database is always exactly correct"
-      - "Write-around, so writes bypass the cache"
       - "Write-back, batching updates to the database asynchronously"
+      - "Write-around, so writes bypass the cache"
       - "No caching — just write straight to the database every time"
-    answer: 2
+    answer: 1
     explanation: "Write-back acknowledges the cache write immediately and flushes to the database later, which is ideal for high-volume, loss-tolerant counters. Write-through would pay full database latency on every increment; write-around wouldn't help since you're reading the count back constantly."
   - question: "A hugely popular cache key expires at midnight, and thousands of concurrent requests all miss at the same instant and slam the database. What actually prevents this?"
     options:
       - "Switch the eviction policy from LRU to LFU"
       - "Add a bigger database connection pool"
-      - "Add random jitter to TTLs and let one request refill while others wait (locking)"
       - "Lower the TTL so the key expires more often"
-    answer: 2
+      - "Add random jitter to TTLs and let one request refill while others wait (locking)"
+    answer: 3
     explanation: "This is a cache stampede. Staggering expiry with jitter and using a lock (single-flight refill) stops the herd from hitting the origin at once. A bigger pool just lets more of the flood through, and a shorter TTL makes synchronized expiry happen more often, not less."
   - question: "A product's price changes and it appears in hundreds of cached search-result pages. You need those pages to reflect the new price quickly across several services. Which invalidation approach scales best?"
     options:
