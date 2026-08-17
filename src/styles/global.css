@@ -94,6 +94,35 @@
     border-left: 4px solid var(--color-accent);
     color: var(--color-text-secondary);
   }
+  .topic-prose table {
+    @apply w-full my-6 text-sm;
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+  }
+  .topic-prose thead {
+    background-color: var(--color-accent-light);
+  }
+  .topic-prose th {
+    @apply px-3 py-2 text-left font-semibold whitespace-nowrap;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+  }
+  .topic-prose td {
+    @apply px-3 py-2 align-top;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+  }
+  .topic-prose tbody tr:nth-child(even) {
+    background-color: #FBFAF7;
+  }
+  .topic-prose tbody tr:hover {
+    background-color: var(--color-accent-light);
+  }
+  /* Tables inside callouts stay compact and borderless-outer */
+  .callout .topic-prose table { margin: 0.5rem 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
