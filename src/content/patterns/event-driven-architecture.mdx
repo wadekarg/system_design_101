@@ -1,9 +1,9 @@
 ---
 title: "Event-Driven Architecture"
-description: "Decouple services by having them communicate through events rather than direct calls — enabling independent scalability, resilience, and an immutable audit log of everything that has ever happened."
+description: "Instead of services calling each other directly, they broadcast events and react to them — trading tight coupling for independent scaling, resilience, and a replayable history of everything that ever happened."
 order: 7
 difficulty: Intermediate
-readTime: "12 min read"
+readTime: "13 min read"
 diagram: EventDrivenDiagram
 relatedTopics:
   - building-blocks/message-queues
@@ -13,68 +13,270 @@ takeaways:
   - "Event sourcing gives you an immutable audit log and the ability to replay history"
   - "CQRS scales read and write sides independently by separating their models"
   - "Choose orchestration for complex workflows needing visibility; choreography for simple reactive flows"
+quiz:
+  - question: "Your Order service publishes an `OrderPlaced` event. The product team now wants to send a loyalty-points bonus whenever an order is placed. In a well-designed event-driven system, what do you change?"
+    options:
+      - "Add a new Loyalty service that subscribes to `OrderPlaced` — the Order service stays untouched"
+      - "Modify the Order service to call the Loyalty service directly"
+      - "Add the loyalty logic inside the Order service's request handler"
+      - "Route all `OrderPlaced` events through a synchronous gateway first"
+    answer: 0
+    explanation: "The whole point of publishing events is that producers don't know their consumers. A new consumer just subscribes; the producer never changes. Calling Loyalty directly (B) reintroduces exactly the coupling event-driven design removes."
+  - question: "A user updates their profile, then immediately reloads a page served by a read model fed asynchronously from events. Their old data flashes on screen for a second. What is happening, and what's the right framing?"
+    options:
+      - "The event broker lost the update — you need exactly-once delivery"
+      - "The read model is corrupt and must be rebuilt from scratch"
+      - "This is eventual consistency — the read side lags the write; design the UX around it or read from the write model when you need read-your-writes"
+      - "The consumer is not idempotent, causing a duplicate"
+    answer: 2
+    explanation: "Read models updated from an event stream are eventually consistent — a normal, expected lag, not data loss. When you truly need read-your-writes, read from the write model or add explicit coordination; otherwise design the UX to tolerate the delay."
+  - question: "Your message broker guarantees at-least-once delivery. During a retry, the `PaymentProcessed` event is delivered to your billing consumer twice. What must be true to avoid double-charging?"
+    options:
+      - "The broker must switch to exactly-once mode"
+      - "The producer must stop retrying"
+      - "The consumer must be idempotent — processing the same event twice has the same effect as once"
+      - "The event must be deleted after the first delivery"
+    answer: 2
+    explanation: "Most brokers give at-least-once delivery, so duplicates are inevitable. The fix lives in the consumer: make it idempotent (e.g., dedupe on an event ID) so a repeat has no extra effect. 'Exactly-once' is largely a myth you engineer around with idempotency."
+  - question: "You're building an order workflow (payment → inventory → invoice → email) that must roll back cleanly if any step fails, and product wants a single dashboard showing where each order is stuck. Which coordination style fits best?"
+    options:
+      - "Pure choreography, because it scales and adds services easily"
+      - "Event sourcing alone, since replay solves everything"
+      - "CQRS, because reads and writes should be separated"
+      - "Orchestration (a saga orchestrator), because the flow is defined in one place and can issue compensating steps in reverse"
+    answer: 3
+    explanation: "When you need central visibility and clean rollback via compensating transactions, orchestration wins — the workflow lives in one coordinator you can inspect and debug. Choreography (A) scales but scatters the flow across services, making 'where is it stuck?' painful."
 ---
 
-## Event-Driven vs Request-Driven
+<Callout type="analogy">
+Think of a **newspaper**. The reporters who write stories have no idea who
+reads them — subscribers, a library, someone lining a birdcage. The paper just
+gets **published**, and anyone who cares can pick it up.
 
-In a request-driven (or request-response) architecture, when Service A needs data from Service B, it calls Service B directly and waits for a response. The call is synchronous: A is blocked until B responds. This is the natural model for reads (fetching data) and is familiar from traditional REST APIs. Its weakness is coupling: A must know B's address, B must be available when A needs it, and if B is slow or down, A is stuck.
+That's event-driven architecture. A service **publishes** an event ("an order
+was placed") like a headline, and never worries about who reads it. Want a new
+subscriber? They just start reading — the newsroom doesn't change a thing.
+Compare that to a **phone call** (request/response): you dial a specific person,
+wait on the line, and you're stuck if they don't pick up.
+</Callout>
 
-In an event-driven architecture, services communicate by producing and consuming events through a message broker (like Apache Kafka, RabbitMQ, or AWS SNS/SQS). When something noteworthy happens in Service A — a user placed an order, a payment was processed, a file was uploaded — A publishes an event to the broker. Any number of other services can subscribe to that event type and react accordingly. A never knows who is consuming its events and does not wait for a response.
+## Event-driven vs request-driven
 
-This shift from synchronous calls to asynchronous events has profound implications. Services become loosely coupled: Service A does not need to know that Services B, C, and D exist. You can add a new consumer of the `OrderPlaced` event without modifying Service A at all. If Service C is temporarily down, its events queue in the broker and it processes them when it recovers — no data is lost, and Service A is unaffected. The system becomes more resilient, more extensible, and more independently deployable.
+In a **request-driven** (request/response) system, when Service A needs
+something from Service B, it **calls B directly and waits**. The call is
+synchronous — A is blocked until B answers. This is the natural model for reads
+and it's how ordinary REST APIs work. Its weakness is **coupling**: A must know
+B's address, B must be up right now, and if B is slow or down, A is stuck.
 
-## Events, Commands, and Queries
+In an **event-driven** system, services talk through a **message broker**
+(Kafka, RabbitMQ, AWS SNS/SQS). When something noteworthy happens — a user
+placed an order, a payment cleared, a file was uploaded — the service
+**publishes an event** and moves on. Any number of other services can
+**subscribe** and react. The publisher never knows who's listening and never
+waits for a reply.
 
-Not all messages in an event-driven system are the same kind of thing. Distinguishing between events, commands, and queries helps clarify the intent of each message and design more coherent systems.
+That one shift — synchronous calls to asynchronous events — buys a lot:
 
-An **event** is a record of something that has already happened: `OrderPlaced`, `PaymentProcessed`, `UserRegistered`. Events are facts — they describe completed actions in the past tense. The producer publishes them without expecting any particular response. Any consumer can react to an event. Events are the natural currency of event-driven systems.
+- **Loose coupling** — A doesn't need to know B, C, and D exist.
+- **Extensibility** — add a new consumer of `OrderPlaced` without touching A.
+- **Resilience** — if a consumer is down, its events wait in the broker and get
+  processed on recovery. Nothing is lost, and the publisher is unaffected.
+- **Temporal decoupling** — producer and consumer don't have to be up at the
+  same moment.
 
-A **command** is a directive to perform an action: `PlaceOrder`, `SendEmail`, `GenerateInvoice`. Commands have intent and a specific target recipient. They may be sent via a queue to a single consumer (point-to-point). Unlike events, commands imply that the sender cares about whether the action succeeds.
+<Callout type="tip">
+The mental test: **would the producer break if a consumer disappeared?** In a
+good event-driven design, the answer is no — the Order service publishes
+`OrderPlaced` whether or not anyone is listening. The moment a producer starts
+caring about a specific consumer's response, you've quietly rebuilt a phone call.
+</Callout>
 
-A **query** retrieves data and is typically synchronous — it does not fit naturally into asynchronous messaging. The CQRS pattern (discussed below) formalizes the separation between commands/events (write side) and queries (read side).
+## Events, commands, and queries
 
-In practice, many systems blend these patterns. The important discipline is to design your events as immutable facts about the world, rather than as instructions for what should happen next.
+Not every message is the same kind of thing. Keeping three straight makes your
+system far more coherent.
 
-## Event Sourcing
+- **Event** — a record of something that *already happened*: `OrderPlaced`,
+  `PaymentProcessed`, `UserRegistered`. Events are **facts**, phrased in the past
+  tense. The producer fires them without expecting a reply, and *any* consumer
+  may react. Events are the native currency of event-driven systems.
+- **Command** — a directive to *do something*: `PlaceOrder`, `SendEmail`,
+  `GenerateInvoice`. A command has intent and a **specific target**, usually one
+  consumer (point-to-point), and the sender *does* care whether it succeeds.
+- **Query** — a request to *read data*. Queries are naturally synchronous and
+  don't fit async messaging well; **CQRS** (below) formalizes splitting them out.
 
-Traditional applications store the current state of entities in a database. When a user updates their address, the old address is overwritten. When an order is cancelled, the order record is updated with status `cancelled`. The history of how state was reached is lost.
+The discipline that pays off: **model your events as immutable facts about the
+world, not as instructions for what should happen next.** `OrderPlaced` (a fact)
+ages well; `TellInventoryToDecrement` (a hidden command) locks you into today's
+workflow.
 
-Event sourcing inverts this model. Instead of storing the current state, you store the sequence of events that produced it. An order's history might be: `OrderCreated`, `ItemAdded`, `ItemAdded`, `ShippingAddressUpdated`, `PaymentCaptured`, `OrderShipped`. The current state of the order is not stored directly — it is derived by replaying these events in sequence.
+## Event sourcing
 
-This has several powerful consequences. First, you have a complete, immutable audit log of everything that ever happened. For financial systems, compliance requirements, and customer support ("what happened to this order?"), this is invaluable. Second, you can replay events to reconstruct past states: what did this order look like before the payment was captured? Third, you can replay the event log through a different projection function to produce a new view of your data — enabling powerful retroactive analysis and new read models without migrating existing data.
+Most apps store the **current state**: update your address and the old one is
+overwritten; cancel an order and its status flips to `cancelled`. The *history*
+of how you got there is gone.
 
-Event sourcing pairs naturally with event-driven architecture: the stored events are also the messages that flow between services. An order service that uses event sourcing naturally produces `OrderPlaced` and `PaymentCaptured` events that downstream services can consume.
+**Event sourcing** flips this. Instead of storing current state, you store the
+**sequence of events** that produced it. An order's log might be `OrderCreated`
+→ `ItemAdded` → `ItemAdded` → `ShippingAddressUpdated` → `PaymentCaptured` →
+`OrderShipped`. Current state isn't stored — it's **derived by replaying** the
+events.
 
-The challenges of event sourcing are real. Querying current state requires either replaying all events (slow for large histories) or maintaining a separate "snapshot" of the current state alongside the event log. Schema evolution — changing the structure of events over time — requires careful versioning. Debugging and mental model maintenance become harder because state is implicit rather than explicit. Event sourcing is a powerful pattern for domains with complex, auditable workflows, but it adds significant complexity and should not be adopted as a default for simple CRUD systems.
+That unlocks three things:
+
+- A complete, **immutable audit log** of everything that ever happened —
+  priceless for finance, compliance, and "what on earth happened to this order?"
+- **Time travel** — replay up to any point to reconstruct a past state.
+- **New views for free** — replay the same log through a different projection to
+  build a brand-new read model, no data migration required.
+
+<Callout type="tip">
+Event sourcing pairs naturally with event-driven architecture: the events you
+*store* are the same ones you *publish*. An order service that's event-sourced
+emits `OrderPlaced` and `PaymentCaptured` as a byproduct — downstream consumers
+just read the log.
+</Callout>
+
+The costs are real, though. Reading current state means either replaying the
+whole log (slow for long histories) or keeping periodic **snapshots**. Changing
+an event's shape over time forces **schema versioning**. And because state is
+implicit, debugging is harder. Event sourcing shines for complex, auditable
+domains — but it's overkill for simple CRUD, so don't reach for it by default.
 
 ## CQRS
 
-Command Query Responsibility Segregation (CQRS) is the pattern of using separate models for reading data (queries) and writing data (commands). In a traditional system, the same data model serves both reads and writes — the same `Order` object is used for placing an order and for rendering the order history screen. These two operations often have different shapes, different performance requirements, and different consistency requirements.
+**Command Query Responsibility Segregation** means using **separate models for
+writing and reading**. In a traditional app, one `Order` object serves both
+placing an order and rendering the order-history screen — two jobs with
+different shapes, performance needs, and consistency needs jammed together.
 
-CQRS separates them explicitly. The write side handles commands (`PlaceOrder`, `CancelOrder`) and maintains data in a normalized, write-optimized form — often with full ACID guarantees. The read side maintains denormalized, read-optimized projections that are derived from the events produced by the write side. The read model for "my order history" might be a denormalized table that joins order, payment, and shipping data, optimized for the specific query pattern of the order history screen.
+CQRS splits them:
 
-The read model is eventually consistent: it is updated when events from the write side arrive, which may be milliseconds or seconds after the write. For most read operations — browsing a catalog, viewing order history, searching for products — this delay is imperceptible and acceptable. For operations where you need immediate read-your-writes consistency, you must read from the write model or add explicit coordination.
+- The **write side** handles commands (`PlaceOrder`, `CancelOrder`) in a
+  normalized, write-optimized form, often with full ACID guarantees.
+- The **read side** keeps denormalized, read-optimized **projections** built
+  from the events the write side emits — e.g. an "order history" table that
+  pre-joins order, payment, and shipping data for exactly that screen.
 
-CQRS enables independent scaling of reads and writes. If your application reads 100x more than it writes, you can deploy many read replicas fed by the event stream without adding write infrastructure. Read models can be stored in whatever technology is best for their access pattern: a relational DB for complex filtered queries, Elasticsearch for full-text search, Redis for low-latency key lookups — all fed from the same event stream.
+The read model is **eventually consistent**: it updates when write-side events
+arrive, milliseconds to seconds later. For browsing, history, and search that
+lag is invisible and fine. When you need **read-your-writes** consistency, read
+from the write model or add explicit coordination.
 
-## Choreography vs Orchestration
+The payoff is **independent scaling**. If you read 100× more than you write, add
+many read replicas fed by the event stream without touching write infrastructure.
+Each read model can live in whatever store fits its access pattern — a relational
+DB for filtered queries, Elasticsearch for full-text, Redis for hot lookups — all
+fed from the same stream.
 
-When multiple services must collaborate to complete a complex workflow — like processing an order: validate payment, update inventory, generate invoice, send confirmation email — there are two fundamental approaches to coordinating them.
+## Choreography vs orchestration
 
-**Choreography** has no central coordinator. Each service knows what to do when it receives a particular event, and it publishes its own events upon completion. The Order Service publishes `OrderPlaced`. The Payment Service consumes `OrderPlaced`, processes payment, and publishes `PaymentProcessed`. The Inventory Service consumes `PaymentProcessed`, updates stock, and publishes `InventoryUpdated`. The workflow emerges from the interaction of independent services reacting to events. There is no single place that has a complete view of the workflow's state.
+When several services must cooperate on a workflow — process an order: validate
+payment, update inventory, generate invoice, send confirmation — there are two
+ways to coordinate them.
 
-Choreography is simple to add to: a new service that wants to react to `OrderPlaced` just subscribes to it, with no changes to existing services. It scales well and is resilient — if one service is down, the others continue processing. Its weakness is visibility: when something goes wrong, understanding what happened requires correlating events across multiple services. Complex workflows become hard to reason about; the implicit flow of control is distributed across many service codebases.
+**Choreography** has **no central boss**. Each service knows what to do when it
+sees an event and publishes its own when done. Order publishes `OrderPlaced`;
+Payment consumes it, charges the card, publishes `PaymentProcessed`; Inventory
+consumes *that*, decrements stock, publishes `InventoryUpdated`. The workflow
+**emerges** from independent services reacting to each other.
 
-**Orchestration** uses a central coordinator (the orchestrator or saga orchestrator) that explicitly directs each step. The orchestrator sends a `ProcessPayment` command to the Payment Service, waits for the response, then sends `UpdateInventory` to the Inventory Service, and so on. The workflow is defined in one place, making it easy to visualize, debug, and modify. When compensation is needed (rolling back a failed workflow), the orchestrator is responsible for issuing compensating commands in reverse order.
+- **Strengths** — dead simple to extend (a new service just subscribes), scales
+  well, resilient (one service down, the rest keep going).
+- **Weakness** — **visibility**. When something breaks, you're correlating
+  events across many codebases. There's no single place that knows the whole
+  workflow's state.
 
-The orchestrator becomes a dependency of the entire workflow, which introduces a single point of failure. It also creates coupling: the orchestrator must know about every participating service. AWS Step Functions and Apache Airflow are examples of orchestration platforms.
+**Orchestration** uses a **central coordinator** that explicitly drives each
+step: send `ProcessPayment`, wait, send `UpdateInventory`, wait, and so on. The
+workflow lives in **one place** — easy to visualize, debug, and modify — and the
+orchestrator can issue **compensating commands in reverse** to roll back a
+failure.
 
-**The Saga pattern** is the application of choreography or orchestration to long-running distributed transactions. Each step in the saga is a local transaction in one service. If a step fails, compensating transactions undo the effects of previous steps. Sagas are discussed in depth in the Distributed Transactions topic.
+- **Weakness** — the orchestrator is a **single point of failure** and must
+  **know about every** participating service (coupling). AWS Step Functions and
+  Apache Airflow are orchestration platforms.
 
-## Benefits and Trade-offs
+The **Saga pattern** applies either style to long-running distributed
+transactions: each step is a local transaction, and on failure, **compensating
+transactions** undo prior steps. Sagas are covered in depth in Distributed
+Transactions.
 
-Event-driven architecture's benefits are compelling: loose coupling between services, independent scalability of producers and consumers, natural resilience to partial failures, temporal decoupling (producer and consumer need not be up simultaneously), and built-in audit logging when event sourcing is used.
+| | Event notification | Event-carried state transfer | Event sourcing |
+|---|---|---|---|
+| **What the event contains** | Just "it happened" + an ID | A full copy of the relevant data | Every state change, stored forever |
+| **Consumer must call back?** | Yes, to fetch details | No, data is in the event | No, replays the log |
+| **Coupling** | Low, but chatty | Lower, but fatter events | Lowest; log is the source of truth |
+| **Best for** | Lightweight signals | Avoiding sync calls on the read path | Audit, replay, temporal queries |
 
-The trade-offs are equally real. **Eventual consistency** is the default: a write in Service A may not be visible to Service B's consumers for seconds or longer. Applications must be designed to handle this gracefully, and users must understand that "your changes may take a moment to reflect everywhere." **Debugging complexity** increases: tracing a request across a chain of asynchronous events requires distributed tracing tooling and careful correlation ID management. **Event schema evolution** is a constant challenge: changing an event's shape can break consumers, requiring versioning strategies. **Exactly-once delivery** is hard: message brokers typically guarantee at-least-once delivery, meaning your consumers must be idempotent — handling the same event multiple times without causing duplicate effects.
+## Where this shows up
 
-Event-driven architecture is not the right default for every system. It excels when services are maintained by independent teams that need to evolve at different speeds, when workflows are long-running and involve multiple services, and when an audit trail or temporal decoupling is valuable. For simple systems where a direct call is clearer and the coupling is acceptable, the additional complexity of event-driven architecture may not pay off.
+- **E-commerce order pipelines** → `OrderPlaced` fans out to payment, inventory,
+  shipping, email, and analytics — all reacting independently so teams ship on
+  their own schedules.
+- **Banking & finance** → **event sourcing** gives the immutable ledger
+  regulators demand; every balance is derived from an append-only history.
+- **Uber / ride-hailing & IoT** → floods of location and sensor events stream
+  through brokers to many consumers (matching, pricing, maps, analytics) at once.
+- **Notification systems** → one `UserMentioned` event drives push, email, and
+  in-app alerts via separate subscribers — the classic **choreography** shape.
+- **Read-heavy dashboards & search** → **CQRS** read models (Elasticsearch, Redis)
+  are rebuilt from the event stream, scaled apart from the write path.
+
+<Callout type="warning">
+The pressure points, and how they bite:
+
+- **Eventual consistency** — a write in A may not show in B's read model for
+  seconds. Users see stale data; design the UX around it or read from the write
+  model when you truly need read-your-writes.
+- **Debugging across async flows** — a request scattered across a chain of events
+  has no single stack trace. Without distributed tracing and **correlation IDs**,
+  "why didn't this order ship?" becomes a nightmare.
+- **Event ordering** — events can arrive out of order across partitions. If
+  `PaymentCaptured` lands before `OrderCreated`, consumers misbehave. Partition
+  by a key (e.g. order ID) or make consumers order-tolerant.
+- **Duplicate events** — brokers give **at-least-once** delivery, so the same
+  event *will* arrive twice. Non-idempotent consumers double-charge. "Exactly-once"
+  is mostly a myth you engineer around.
+</Callout>
+
+## Handling the pressure points
+
+- **Eventual consistency** → set user expectations ("changes may take a moment"),
+  and read from the write model for the rare read-your-writes case.
+- **Tracing** → propagate a **correlation ID** on every event and adopt
+  distributed tracing (OpenTelemetry, Jaeger) so one request is one trace.
+- **Ordering** → partition by entity key so all of one order's events stay in
+  order; version events so consumers can detect and reorder if needed.
+- **Duplicates** → make consumers **idempotent** — dedupe on a unique event ID,
+  or use upserts so replaying an event changes nothing.
+
+## Alternatives & related ideas
+
+<Callout type="alternative">
+Event-driven isn't the default for everything. When a call is simpler and the
+coupling is acceptable, plain **request/response** is clearer — don't add a
+broker to avoid one function call.
+
+Within event-driven, the axes to pick along: **choreography vs orchestration**
+(emergent-and-resilient vs central-and-visible), **sagas** for long-running
+distributed transactions with compensation, and **CQRS** when reads and writes
+have genuinely different shapes and scale. **Event sourcing** is a heavier commitment
+— take it only when audit and replay earn their keep. Most real systems **blend**
+these rather than adopting one wholesale.
+</Callout>
+
+## Summary
+
+Event-driven architecture replaces direct calls with **published events** so
+producers never know their consumers — buying loose coupling, independent
+scaling, and resilience to partial failure. Model events as **immutable past-tense
+facts**; layer on **event sourcing** for a replayable audit log and **CQRS** to
+scale reads apart from writes. Coordinate multi-service workflows with
+**choreography** (simple, resilient, low-visibility) or **orchestration**
+(central, debuggable, a single point of failure), and use **sagas** with
+compensating transactions for rollbacks. The tax you pay is **eventual
+consistency, harder debugging, event ordering, and duplicate delivery** — so
+propagate correlation IDs and make every consumer **idempotent**, and skip the
+whole thing when a plain request/response would be clearer.

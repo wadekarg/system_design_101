@@ -1,9 +1,9 @@
 ---
 title: "API Gateway"
-description: "A single entry point for all client requests that centralizes cross-cutting concerns — authentication, rate limiting, routing, and observability — so microservices can focus on business logic."
+description: "The single front door to your microservices — one place to handle auth, routing, rate limiting, and observability so each service can just do its job."
 order: 6
 difficulty: Intermediate
-readTime: "11 min read"
+readTime: "10 min read"
 diagram: ApiGatewayDiagram
 relatedTopics:
   - patterns/rate-limiting
@@ -14,74 +14,230 @@ takeaways:
   - "BFF pattern creates per-client gateways tailored to each client's needs"
   - "The gateway itself must be highly available — it's on the critical path of every request"
   - "Service mesh is an alternative for east-west (service-to-service) traffic"
+quiz:
+  - question: "A mobile app screen needs data from five microservices, each with its own hostname and auth scheme. What does putting an API Gateway in front of them change for the client?"
+    options:
+      - "The client still calls all five services but gets faster responses"
+      - "The client makes one call to the gateway, which routes and aggregates behind the scenes"
+      - "Each microservice must now implement its own authentication"
+      - "The microservices become directly reachable from the public internet"
+    answer: 1
+    explanation: "The gateway is a single entry point: the client sees one API, and the gateway hides the internal topology by routing and aggregating. It reduces client complexity — it doesn't push auth back onto each service."
+  - question: "Your team is about to deploy a single API Gateway instance in production because it's simpler to manage. Why is this dangerous?"
+    options:
+      - "A single instance can't terminate TLS"
+      - "Gateways are only allowed to run in pairs by the HTTP spec"
+      - "The gateway is on the critical path of every request, so it becomes a single point of failure"
+      - "One instance can't validate JWTs without a database"
+    answer: 2
+    explanation: "Because every request flows through it, one gateway going down makes all services unreachable. Run multiple instances behind a load balancer with health checks — never a single instance in production."
+  - question: "Your iOS team wants compact aggregated responses over 4G, while your web team wants granular endpoints it can call in parallel. Which approach fits best?"
+    options:
+      - "The Backend for Frontend (BFF) pattern — a separate gateway config per client type"
+      - "A service mesh like Istio between the two client teams"
+      - "Force both clients to share one lowest-common-denominator response shape"
+      - "Remove the gateway so each client talks to services directly"
+    answer: 0
+    explanation: "BFF gives each client type its own tailored gateway, so mobile gets aggregated payloads and web gets granular ones — each team evolves independently. A service mesh handles service-to-service traffic, not client shaping."
+  - question: "You need mutual TLS, retries, and circuit breaking on service-to-service (east-west) calls inside your cluster. Which tool is the better fit?"
+    options:
+      - "A bigger API Gateway"
+      - "Response caching at the edge"
+      - "A REST-to-gRPC protocol translator"
+      - "A service mesh like Istio or Linkerd"
+    answer: 3
+    explanation: "API Gateways specialize in north-south (client-to-service) traffic. East-west concerns like mTLS, retries, and circuit breaking between internal services are exactly what a service mesh handles, without funneling everything through one central gateway."
 ---
 
-## What is an API Gateway
+<Callout type="analogy">
+Think of a big hotel. Guests don't wander into the kitchen, housekeeping, or
+accounting to get what they need — they walk up to the **front desk**. One
+counter checks your ID, tells you which room is yours, calls the right
+department, and hands you a single answer.
 
-As a system grows from a monolith into many microservices, client applications face a problem: instead of one endpoint to call, they now need to know about dozens of services, each with its own hostname, authentication mechanism, and API contract. A mobile app building a single screen might need to make five separate API calls to five different services and stitch the results together.
+An **API Gateway** is that front desk for your microservices. Clients talk to
+one place; the gateway checks who you are, routes you to the right service, and
+returns one clean response. The dozens of services behind it stay hidden.
+</Callout>
 
-An API Gateway solves this by acting as a single entry point for all client requests. Clients send all requests to the gateway, which handles the work of routing each request to the appropriate downstream service, aggregating responses when needed, and applying shared logic like authentication and rate limiting. From the client's perspective, the entire system is a single API. The internal microservice topology is hidden behind the gateway.
+## What an API Gateway is
 
-The API Gateway is sometimes described as the "front door" of your system. It receives every inbound request, so it occupies a uniquely powerful position — it can inspect, transform, reject, or route any request without the downstream services knowing anything happened.
+As a system grows from a monolith into many **microservices**, clients hit a
+wall: instead of one endpoint, they now face dozens — each with its own
+hostname, auth scheme, and API contract. A mobile app building a single screen
+might need five separate calls to five services and then stitch the results
+together itself.
 
-## Core Functions
+An **API Gateway** fixes this by being a **single entry point** for all client
+requests. Clients send everything to the gateway, which:
 
-The gateway pattern's power comes from the breadth of cross-cutting concerns it can handle in one place. Rather than implementing these concerns independently in every microservice, you implement them once in the gateway and all services benefit automatically.
+- **routes** each request to the right downstream service,
+- **aggregates** responses when a screen needs several services,
+- **applies shared logic** like authentication and rate limiting.
 
-**Authentication and Authorization:** Before routing a request, the gateway verifies the caller's identity. It validates JWT tokens, OAuth bearer tokens, or API keys. A valid token is decoded, and the caller's identity and permissions are extracted. The gateway may then check an authorization policy — does this user have permission to call this endpoint? — before forwarding the request. Downstream services receive the authenticated identity (often as an injected header) and can trust it without performing their own authentication. This eliminates duplicated auth logic across services.
+From the client's side, the whole system looks like *one API*. The internal
+topology stays hidden. Because every request passes through it, the gateway sits
+in a uniquely powerful spot — it can inspect, transform, reject, or route any
+request without the downstream services knowing anything happened.
 
-**Rate Limiting and Throttling:** The gateway sees all traffic and is the natural place to enforce rate limits per client, per endpoint, or per service tier. Excessive requests are rejected at the gateway before consuming any downstream resources. This is discussed in depth in the Rate Limiting topic.
+## What the gateway handles for you
 
-**Request Routing:** The gateway maps incoming paths and methods to specific downstream services. `/api/users/*` routes to the User Service; `/api/orders/*` routes to the Order Service. Routing rules can be simple path prefixes or complex rules based on headers, query parameters, or request body content.
+The power of the pattern is the **breadth of cross-cutting concerns** it handles
+in one place. Instead of every service reimplementing these, you implement them
+once at the gateway and every service benefits.
 
-**Protocol Translation:** Clients often speak HTTP/REST, but downstream services may expose gRPC, AMQP, or WebSocket interfaces. The gateway can translate between protocols, insulating clients from internal protocol decisions. A REST-to-gRPC translator allows the team to use efficient binary protocols internally while presenting a standard REST API externally.
+- **Authentication & authorization** — the gateway validates the JWT, OAuth
+  token, or API key, then forwards the caller's identity as trusted headers.
+  Downstream services skip re-checking auth.
+- **Rate limiting & throttling** — it sees all traffic, so it rejects abusive
+  callers *before* they reach any backend.
+- **Request routing** — `/api/users/*` goes to the User Service, `/api/orders/*`
+  to the Order Service, based on path, headers, or body.
+- **Protocol translation** — clients speak HTTP/REST while services may speak
+  gRPC or WebSockets; the gateway bridges them.
+- **SSL/TLS termination** — HTTPS ends at the gateway, centralizing certificate
+  management.
+- **Load balancing** — it spreads requests across healthy instances of each
+  service, usually via service discovery.
+- **Response caching** — idempotent GETs can be served without touching the
+  backend.
+- **Logging & observability** — one choke point means uniform logs, metrics, and
+  trace spans across every service.
 
-**SSL Termination:** The gateway terminates HTTPS connections from clients, decrypting TLS at the edge. Downstream service-to-service communication can then use plain HTTP inside the private network (or mutual TLS if required). This centralizes certificate management and reduces TLS overhead on internal services.
+<Callout type="tip">
+Auth at the gateway is fast because JWT validation is **local** — the gateway
+checks the token signature with the identity provider's public key, no network
+call needed. It then injects claims as headers like `X-User-Id: 12345` or
+`X-User-Roles: admin,read`, and services trust them without re-validating.
+</Callout>
 
-**Load Balancing:** The gateway distributes requests across multiple instances of each downstream service. It maintains a list of healthy instances (often via service discovery integration) and applies a load balancing strategy like round-robin or least-connections.
+## Coarse vs fine-grained authorization
 
-**Response Caching:** For idempotent GET requests, the gateway can cache responses and serve subsequent identical requests without forwarding them downstream. This reduces latency and reduces load on backend services.
+Split the decisions by who has the context to make them well:
 
-**Logging and Observability:** Because every request passes through the gateway, it is the ideal place to log request metadata, emit latency metrics, and generate distributed trace spans. A single logging configuration at the gateway provides uniform visibility across all services.
+- **Coarse-grained** ("is this caller authenticated?", "does this API key have
+  the paid tier?") → the **gateway** decides.
+- **Fine-grained** ("can *this* user edit *this specific* document?") → the
+  **downstream service** decides, because it owns the domain data.
 
-## Auth and Authorization
+For **API-key** auth (common in machine-to-machine calls), the gateway looks up
+the key to find its identity and permissions. Cache that lookup aggressively —
+key metadata rarely changes, so a DB round-trip per request is wasteful.
 
-Authentication at the gateway deserves deeper examination because the implementation details matter.
+## Gateway vs load balancer vs reverse proxy
 
-When a request arrives with a JWT, the gateway validates the token signature using the public key of the identity provider. This is a local operation — no network call required — making it fast and resilient. The gateway then decodes the token's claims (user ID, roles, scopes) and attaches them to the forwarded request as headers (for example, `X-User-Id: 12345` or `X-User-Roles: admin,read`). Downstream services consume these headers and trust them — they do not need to re-validate the JWT.
+These three overlap and get confused. The difference is *how much they
+understand about your application*.
 
-For API key authentication (common in machine-to-machine contexts), the gateway looks up the API key in a database or cache to retrieve the associated identity and permissions. This lookup should be cached aggressively — API key metadata changes rarely — to avoid a database round-trip on every request.
+| Capability | Reverse Proxy | Load Balancer | API Gateway |
+|---|---|---|---|
+| Forwards requests to backends | ✅ | ✅ | ✅ |
+| Spreads load across instances | sometimes | ✅ (its whole job) | ✅ |
+| TLS termination | ✅ | ✅ | ✅ |
+| Auth / rate limiting | ✗ | ✗ | ✅ |
+| Path/content-based routing | basic | ✗ | ✅ (rich) |
+| Protocol translation, aggregation | ✗ | ✗ | ✅ |
+| Knows about application/API semantics | no | no | yes |
 
-Authorization can be handled at the gateway for coarse-grained decisions ("is this user authenticated at all?", "does this API key have access to this product tier?") while finer-grained decisions ("can this user edit this specific document?") are delegated to the downstream service, which has the domain context to evaluate them correctly.
+An API Gateway is essentially a **smart, application-aware reverse proxy** that
+adds cross-cutting logic. A load balancer just distributes connections; a plain
+reverse proxy just forwards them.
 
-## Rate Limiting and Throttling
+## Routing in a dynamic cluster
 
-The gateway applies rate limits per the configured policies. Because it sees all traffic, it provides accurate aggregate counts without the coordination challenges of per-service rate limiting. It issues HTTP 429 Too Many Requests responses with `Retry-After` and `X-RateLimit-*` headers when limits are exceeded. See the Rate Limiting topic for the full discussion of algorithms and distributed implementation.
+Hardcoded service addresses break the moment services scale up and down. The
+gateway integrates with **service discovery** — Consul, Kubernetes DNS, AWS
+Service Discovery — to keep a live registry of healthy instances. On each
+request it asks discovery for the current healthy set, then load-balances across
+them.
 
-## Request Routing and Service Discovery
+<Callout type="tip">
+In **Kubernetes**, the `Ingress` resource formalizes this idea. Ingress
+controllers (nginx, Traefik, or cloud-native ones) route external traffic to
+Services by host and path — and full gateway features are layered on top.
+</Callout>
 
-Static routing rules (hardcoded service addresses) are brittle in a dynamic microservice environment where services scale up and down. The gateway integrates with service discovery systems — Consul, Kubernetes DNS, AWS Service Discovery — to maintain an up-to-date registry of healthy service instances. When routing a request, the gateway queries service discovery to get the current set of healthy instances for the target service, then applies load balancing to choose one.
+## The BFF pattern
 
-In Kubernetes environments, the Ingress resource formalizes the gateway concept. Ingress controllers (like nginx, Traefik, or cloud-native implementations from AWS or GCP) implement the Ingress rules, routing external traffic to Kubernetes Services based on path and host rules. The API gateway functionality is layered on top of (or instead of) the basic Ingress controller.
+The **Backend for Frontend (BFF)** pattern is the single gateway, evolved.
+Different clients have different needs: a mobile app on 4G wants compact,
+aggregated responses; a desktop web app prefers granular endpoints it can call
+in parallel; third-party developers want stable, versioned endpoints.
 
-## BFF Pattern
+In BFF, you run a **separate gateway per client type**. The iOS BFF shapes
+responses for the iOS data model; the Web BFF serves richer, granular data. Each
+client team evolves its own contract without negotiating with the others or
+settling for a lowest-common-denominator shape.
 
-The Backend for Frontend (BFF) pattern is an evolution of the single API gateway. Different client types — iOS app, Android app, web browser, third-party developers — have different data needs, latency budgets, and API usage patterns. A mobile app on a 4G connection needs compact, aggregated responses. A desktop web app may prefer granular endpoints it can call in parallel with browser-level concurrency. Third-party API users need stable, versioned, generalized endpoints.
+The cost: more gateway configs to operate. The payoff: client-specific
+optimizations (compression, field selection, aggregation) live in one place
+instead of being reimplemented in every client.
 
-In the BFF pattern, you create a separate gateway (or gateway configuration) for each client type. The iOS BFF aggregates and shapes responses specifically for the iOS app's data model. The Web BFF serves richer, more granular data optimized for browser rendering. This allows each client team to evolve its API contract independently without negotiating with other client teams or forcing all clients to accept the lowest-common-denominator response shape.
+## Where this shows up
 
-The BFF pattern adds operational overhead — you now maintain multiple gateway configurations — but it significantly reduces the complexity of individual client implementations and allows client-specific optimizations like response compression, field selection, and aggregation to be implemented once rather than in every client.
+- **Public API products (Stripe, Twilio)** → a gateway enforces per-key rate
+  limits, versioning, and usage metering at the edge, so billing and abuse
+  control live in one spot.
+- **Mobile-heavy apps (Netflix, Uber)** → BFF-style gateways aggregate many
+  backend calls into one compact response, saving battery and round-trips on
+  slow networks.
+- **Kubernetes microservice platforms** → an Ingress/gateway is the single
+  documented front door; internal services stay private and unexposed.
+- **Enterprises modernizing a monolith** → a gateway sits in front, routing new
+  paths to microservices and legacy paths to the monolith during a gradual
+  strangler-fig migration.
 
-## Trade-offs
+## Pressure points
 
-The API Gateway pattern introduces trade-offs that must be understood before adopting it.
+<Callout type="warning">
+The gateway sits on the critical path of **every** request, so its weaknesses
+hit the whole system:
 
-**Latency:** Every request now passes through an additional network hop. For a request that previously went client → service, it now goes client → gateway → service. In well-implemented gateways with efficient routing and local auth validation, this overhead is typically in the range of 1-5 milliseconds. But for latency-sensitive paths, this must be measured and accepted.
+- **Single point of failure** — if the gateway dies, all services go dark. Never
+  run one instance. Deploy several behind a load balancer with health checks and
+  automatic failover.
+- **Bottleneck / latency** — you added a network hop (client → gateway →
+  service), typically 1–5 ms. Keep auth local, cache hot responses, and measure
+  it on latency-sensitive paths.
+- **Config sprawl** — routes, auth policies, and rate limits pile up into a giant
+  shared config owned by one platform team, creating coordination friction and
+  risky deploys.
+</Callout>
 
-**Single Point of Failure:** The gateway is on the critical path of every request. If it fails, all services become unreachable from clients. This demands that the gateway be deployed with high availability — multiple instances behind a load balancer, with health checks and automatic failover. Never run a single gateway instance in production.
+## Handling the pressure points
 
-**Operational Complexity:** The gateway becomes a shared piece of infrastructure owned by the platform team. Adding new routes, updating auth policies, and deploying gateway changes all become potential points of coordination friction between teams.
+- **Avoid the SPOF** → run multiple stateless gateway instances behind a load
+  balancer; health-check and auto-heal them. Keep the gateway *stateless* so any
+  instance can serve any request.
+- **Tame the latency** → validate JWTs locally, cache API-key and response data,
+  and keep gateway logic thin — push heavy business logic to services.
+- **Curb config sprawl** → treat gateway config as code (versioned, reviewed,
+  CI-deployed), and split into per-team or per-client (BFF) configs so ownership
+  is clear.
 
-**East-West Traffic:** API Gateways handle north-south traffic (client to service). For east-west traffic (service to service within the cluster), a service mesh like Istio or Linkerd is a better fit. A service mesh applies mutual TLS, circuit breaking, retry logic, and observability to all service-to-service calls, without routing through a central gateway.
+## Alternatives & related ideas
 
-Popular API gateway implementations include Kong (open source, extensible via plugins), AWS API Gateway (fully managed, integrates with AWS ecosystem), nginx (high-performance, widely deployed), and Envoy (the data plane behind Istio and many cloud-native gateways).
+<Callout type="alternative">
+The gateway handles **north-south** traffic (client → service). For
+**east-west** traffic (service → service inside the cluster), reach for a
+**service mesh** like Istio or Linkerd — it gives you mutual TLS, retries,
+circuit breaking, and tracing on internal calls without funneling everything
+through one center.
+
+For per-client response shaping, use the **BFF pattern** above. And for very
+simple setups, a plain **reverse proxy or Ingress controller** may be all you
+need — don't reach for a full gateway until the cross-cutting concerns justify
+it. Popular gateways: **Kong**, **AWS API Gateway**, **nginx**, and **Envoy**.
+</Callout>
+
+## Summary
+
+An **API Gateway** is the single front door to your microservices: it routes,
+aggregates, and applies shared concerns like **auth, rate limiting, TLS
+termination, and observability**, so each service can focus on business logic and
+clients see one clean API. It's more than a load balancer or reverse proxy
+because it understands your application's semantics. The catch is that it lives
+on every request's critical path — so run **multiple highly available
+instances**, keep it thin to control latency, and manage its config as code.
+Reach for a **service mesh** for service-to-service traffic and the **BFF
+pattern** when different clients need different response shapes.

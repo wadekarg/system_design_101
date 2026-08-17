@@ -1,9 +1,9 @@
 ---
 title: "Consistent Hashing"
-description: "Distribute data across a dynamic set of nodes so that adding or removing a node remaps the minimum possible number of keys — the foundation of scalable distributed caches and databases."
+description: "How to spread data across a changing set of servers so that adding or removing one moves the fewest possible keys — the trick behind scalable caches and databases."
 order: 2
 difficulty: Advanced
-readTime: "13 min read"
+readTime: "11 min read"
 diagram: ConsistentHashingDiagram
 relatedTopics:
   - building-blocks/database-sharding
@@ -14,56 +14,199 @@ takeaways:
   - "Virtual nodes solve the uneven distribution problem of basic consistent hashing"
   - "DynamoDB and Cassandra use consistent hashing for data partitioning"
   - "The key insight: only ~K/n keys need remapping when a server joins/leaves"
+quiz:
+  - question: "You run a 4-server cache using hash(key) % 4. Traffic grows, so you add a 5th server. What happens on the next wave of requests?"
+    options:
+      - "Only about 1/5 of keys move; the rest stay put"
+      - "Almost every key now maps to a different server, so the cache mostly misses at once"
+      - "Nothing changes until you manually rehash"
+      - "Only keys on the new server are affected"
+    answer: 1
+    explanation: "With modulo hashing, changing n from 4 to 5 changes hash(key) % n for nearly every key. The whole cache effectively invalidates simultaneously — a thundering herd that hammers your database. Consistent hashing exists precisely to avoid this."
+  - question: "On a hash ring, you hash a key and it lands at position 900. Servers sit at ring positions 200, 700, and 1100. Which server owns the key?"
+    options:
+      - "The server at 700 (nearest counter-clockwise)"
+      - "The server at 200 (lowest position)"
+      - "The server at 1100 (first one clockwise)"
+      - "It's split across all three"
+    answer: 2
+    explanation: "You walk clockwise from the key's position until you hit the first server. From 900, the next server clockwise is 1100. That deterministic clockwise walk is what makes the same key always resolve to the same server."
+  - question: "Your consistent-hashing cluster has only 3 physical servers and one is receiving 40% of all traffic while another gets 5%. What's the standard fix?"
+    options:
+      - "Give each physical server many virtual nodes spread around the ring"
+      - "Switch back to modulo hashing"
+      - "Use a bigger hash function output like 2^64"
+      - "Add more keys so the load averages out"
+    answer: 0
+    explanation: "With few servers, the ring splits into wildly uneven arcs. Virtual nodes place each physical server at hundreds of ring positions, so by the law of large numbers each server ends up owning a roughly equal share. A larger address space doesn't fix uneven arc sizes."
+  - question: "One node in a healthy consistent-hashing cluster crashes. Which statement best describes the impact?"
+    options:
+      - "The entire keyspace must be reshuffled"
+      - "Every server loses a proportional slice of its keys"
+      - "All keys become unreachable until the node is replaced"
+      - "Only the failed node's keys move to the next servers clockwise; the rest are untouched"
+    answer: 3
+    explanation: "A failure only affects the failed node's ring segment — the next server(s) clockwise absorb its keys. With virtual nodes that load spreads across many servers, and with replicas the copies take over immediately. No global reshuffle happens."
 ---
 
-## The Problem with Simple Hashing
+<Callout type="analogy">
+Picture a **round clock face**, but instead of 12 hours it has billions of tiny
+positions around the rim. You drop your **servers** onto the clock at scattered
+spots, then drop each **key** somewhere on the rim too. To find a key's home, you
+start at the key and walk **clockwise** until you bump into the first server —
+that server owns the key.
 
-Imagine you have a distributed cache built from three servers. A natural approach to distributing keys across them is modular hashing: assign a key to the server at index `hash(key) % n`, where `n` is the number of servers. For three servers, key "user:123" might hash to 47, and `47 % 3 = 2`, so it lives on server 2. This works perfectly when the number of servers is fixed.
+Now add a new server: it slots in at one spot on the clock, and only the keys in
+the little arc just before it change hands. Everyone else keeps the same home.
+That's the whole idea — moving one server disturbs one slice of the clock, not
+the entire keyspace.
+</Callout>
 
-The problem appears the moment you scale. If you add a fourth server, `n` changes from 3 to 4. Now "user:123" maps to `47 % 4 = 3` — a completely different server. Across a cache with millions of keys, changing `n` by one means nearly every key maps to a different server than it did before. On the next request for "user:123", the cache misses on server 3 and falls back to the database. If this happens to millions of keys simultaneously, you have effectively invalidated your entire cache — causing a thundering herd that can overwhelm your database.
+## The problem: modulo hashing breaks on resize
 
-Removing a server causes the same problem in reverse. The requirement, then, is a hashing scheme where adding or removing a node remaps only the minimum necessary fraction of keys — ideally `K/n` keys, where `K` is the total number of keys and `n` is the number of nodes.
+Say you build a distributed cache from three servers. The obvious way to spread
+keys is **modulo hashing**: send a key to server `hash(key) % n`, where `n` is
+the server count. If `"user:123"` hashes to 47, then `47 % 3 = 2`, so it lives on
+server 2. Clean and simple — **as long as `n` never changes**.
 
-## Consistent Hashing Explained
+The trouble starts the instant you scale. Add a fourth server and `n` jumps from
+3 to 4. Now `"user:123"` maps to `47 % 4 = 3` — a *different* server. And this
+isn't a one-off: changing `n` by one reshuffles **nearly every key** in the whole
+cache.
 
-Consistent hashing solves this by mapping both servers and keys to the same abstract circular address space, called a **hash ring**. Imagine the ring as a circle with positions numbered from 0 to `2^32 - 1` (or any sufficiently large integer). You hash each server's identifier (IP address or hostname) to a position on the ring using the same hash function you will use for keys.
+On the next request, that key misses on the new server and falls through to the
+database. Multiply by millions of keys hitting at once and you've effectively
+**flushed your entire cache** — a **thundering herd** that can drown your
+database. Removing a server does the same damage in reverse.
 
-To determine which server owns a given key, you hash the key to its position on the ring and then walk clockwise around the ring until you encounter the first server. That server is responsible for the key. Since both servers and keys are hashed into the same space, the assignment is deterministic: the same key always maps to the same server as long as no servers are added or removed.
+<Callout type="tip">
+The math is brutal: with modulo hashing, growing from n to n+1 servers remaps
+roughly **(n / (n+1)) of all keys**. Going from 9 to 10 servers moves ~90% of
+them. What you actually want is to move only about **K/n** keys — the fair share
+that belongs on the one server you added.
+</Callout>
 
-When you add a new server, it takes a position on the ring between two existing servers. Only keys that fall in the arc between the new server and its predecessor now map to the new server. Keys outside that arc are unaffected. When you remove a server, only its keys need to be remapped — they move to the next server clockwise. In both cases, approximately `K/n` keys are remapped rather than all of them.
+## The fix: put servers and keys on one ring
 
-This is the fundamental insight: by arranging servers and keys on a ring, you ensure that the addition or removal of any one node affects only its immediate neighbors on the ring, not the entire key space.
+Consistent hashing maps **both servers and keys into the same circular address
+space** — the **hash ring**. Think of a circle numbered `0` to `2^32 - 1`. You
+hash each server's identifier (its IP or hostname) to a spot on the ring, using
+the *same* hash function you use for keys.
 
-## Virtual Nodes
+To find a key's owner:
 
-Basic consistent hashing has a significant weakness: uneven distribution. With only a handful of real servers, the ring may be divided into arcs of very different sizes, depending on where each server's hash lands. One server might own 40% of the ring and another only 5%, leading to severely imbalanced load.
+- Hash the **key** to its position on the ring.
+- Walk **clockwise** until you hit the first server.
+- That server owns the key.
 
-Virtual nodes (vnodes) solve this. Instead of placing each physical server at a single position on the ring, you place it at many positions — perhaps 100 to 300 virtual nodes per physical server. Each virtual node is typically hashed as `server_id:vnode_index` (for example, `server-A:0`, `server-A:1`, ..., `server-A:150`). The physical server owns the union of all its virtual node arcs on the ring.
+Because both live in the same space, the mapping is **deterministic** — the same
+key always lands on the same server, as long as the servers don't change.
 
-With hundreds of virtual nodes per server, the positions are spread around the ring much more uniformly by the law of large numbers. When a server is added, its virtual nodes take small slices of load from many other servers, not just one. When a server is removed, its load is distributed back to many other servers proportionally. This results in much better load balance in practice.
+Now the payoff. **Adding a server** drops it between two existing servers; only
+the keys in the arc between the newcomer and its clockwise-previous neighbor move
+to it. Everything else is untouched. **Removing a server** hands only its keys to
+the next server clockwise. Either way, roughly **K/n keys move** instead of all
+of them.
 
-Virtual nodes also make it easy to weight servers differently. A server with twice the RAM or CPU capacity can be assigned twice as many virtual nodes, and it will naturally receive approximately twice the share of keys.
+That's the fundamental insight: arranging servers and keys on a ring means any
+one node change disturbs only its **immediate ring neighbors**, never the whole
+keyspace.
 
-## Benefits
+### Modulo hashing vs consistent hashing
 
-The benefits of consistent hashing become most apparent in three scenarios: scaling events, failure handling, and heterogeneous hardware.
+| Aspect | Modulo hashing (`hash % n`) | Consistent hashing (ring) |
+|---|---|---|
+| Add/remove a node | ~**all** keys remap | ~**K/n** keys remap |
+| Cache impact of resize | Near-total flush → thundering herd | A small slice repopulates |
+| Load balance | Even (when `n` is fixed) | Uneven with few nodes → **virtual nodes** |
+| Weighting big servers | Hard | Easy (more virtual nodes) |
+| Best when | Node count never changes | Cluster grows, shrinks, or fails often |
 
-During a **scaling event** — adding capacity to handle growing traffic — a system using modular hashing must re-shard its entire dataset. With consistent hashing, only the fraction of keys that fall into the new server's ring segment need to be migrated. For a cache, you simply let those keys naturally repopulate from the source of truth on cache miss. For a persistent data store, you migrate just the affected keys rather than the whole dataset.
+## Virtual nodes: fixing lumpy distribution
 
-When a **server fails**, only that server's segment of the ring is affected. The next server clockwise automatically absorbs the failed server's keys. For a cache, this means a temporary increase in cache misses while those keys repopulate — not a total cache flush. For a data store with replicas, the replicas can take over immediately.
+Basic consistent hashing has a real weakness: **uneven distribution**. With only
+a few servers, the ring splits into arcs of very different sizes depending on
+where each server's hash happened to land. One server might own **40% of the
+ring** while another owns **5%** — badly lopsided load.
 
-For **heterogeneous hardware**, virtual nodes make it trivial to assign load proportional to each machine's capacity, without any changes to the client-side routing logic. The routing algorithm remains the same; you simply assign more virtual nodes to more powerful servers.
+**Virtual nodes** (vnodes) fix this. Instead of placing each physical server at
+one spot, you place it at **many** — often 100 to 300 positions. Each virtual
+node hashes as something like `server-A:0`, `server-A:1`, ... `server-A:150`, and
+the physical server owns the union of all those arcs.
 
-## Real-World Use
+<Callout type="tip">
+With a few hundred vnodes per server, the **law of large numbers** kicks in and
+positions spread nearly uniformly around the ring. Add a server and its vnodes
+grab small slices from *many* servers at once — not one unlucky neighbor. Remove
+one and its load flows back out proportionally.
+</Callout>
 
-Consistent hashing is not an academic curiosity — it is the foundation of several of the most widely deployed distributed systems in the world.
+Virtual nodes also make **weighting** trivial: a server with twice the RAM gets
+twice the vnodes, and naturally receives about twice the keys — with zero change
+to the routing logic.
 
-**Amazon DynamoDB** uses consistent hashing to partition data across its storage nodes. Each item is assigned to a partition based on a hash of its partition key, and the virtual node system ensures that partition responsibilities are distributed evenly and that rebalancing after node changes is minimal.
+## Where this shows up
 
-**Apache Cassandra** uses a ring-based consistent hashing architecture at its core. Each node in a Cassandra cluster is assigned a range of the token ring, and data is replicated to multiple consecutive nodes on the ring for fault tolerance. The replication factor determines how many copies of each key exist. When nodes join or leave the cluster, only the affected token ranges are moved.
+- **Amazon DynamoDB** → partitions items across storage nodes by a hash of the
+  partition key. Virtual nodes keep partitions even and make post-scaling
+  rebalancing minimal.
+- **Apache Cassandra** → the whole architecture is a token ring. Each node owns a
+  token range, data replicates to the next few nodes clockwise for fault
+  tolerance, and only affected ranges move when nodes join or leave.
+- **Redis Cluster** → uses a pragmatic variant: **16,384 fixed hash slots** split
+  across nodes. Adding/removing a node migrates whole slots — simpler to reason
+  about than a raw ring, same core benefit.
+- **CDNs** → route each URL to a consistent edge cache node, so cached copies
+  accumulate on one server instead of scattering across all of them.
 
-**Redis Cluster** uses a variant of consistent hashing called hash slots. The key space is divided into 16,384 hash slots, and each node is responsible for a subset of slots. When nodes are added or removed, slots (and the data in them) are migrated accordingly — a practical engineering simplification of the full consistent hashing model.
+The common thread: they all spread a huge keyspace across a **changing** cluster
+and can't afford a global reshuffle every time membership changes.
 
-**Content Delivery Networks** use consistent hashing to route requests for a given URL to a consistent edge cache server. Because the same URL always maps to the same cache node (as long as the cluster size is stable), cached copies accumulate efficiently rather than being scattered across all nodes.
+<Callout type="warning">
+The trap is assuming the ring balances itself. With **few physical nodes and no
+virtual nodes**, load is genuinely lopsided — one server can carry many times its
+share. A second failure mode is a **hot key**: consistent hashing spreads *keys*
+evenly, but if one key (a celebrity's profile, a viral URL) gets 90% of the
+traffic, the ring can't help — that whole load still lands on one server.
+</Callout>
 
-The common thread across all these systems is the need to distribute a large keyspace across a changing cluster without expensive global reshuffling. Consistent hashing is the elegant answer to that problem.
+## Handling the pressure points
+
+- **Uneven arcs / lopsided load?** → use **virtual nodes** (100–300 per server).
+  This is the default in every serious implementation, not an optional extra.
+- **Heterogeneous hardware?** → assign **more vnodes to bigger machines** so load
+  tracks capacity, with no routing changes.
+- **Hot single key?** → the ring won't save you. **Replicate** that key across
+  several nodes and load-balance reads, or cache it at the edge / in the client.
+- **Cascading failure when a node dies?** → keep **replicas** on the next nodes
+  clockwise so a crash is an instant failover, not a mass of cache misses.
+
+## Alternatives & related ideas
+
+<Callout type="alternative">
+Consistent hashing isn't the only way to place data:
+
+- **Rendezvous (HRW) hashing** — for each key, compute `hash(key, server)` for
+  every server and pick the highest. Same minimal-movement property, often
+  simpler, and no ring to maintain.
+- **Fixed hash slots** (Redis Cluster's 16,384 slots) — a discretized ring that's
+  easier to operate and migrate.
+- **Range partitioning / directory-based sharding** — a lookup table maps key
+  ranges to nodes. Maximum flexibility, but you must keep the directory highly
+  available.
+
+Reach for plain **modulo hashing** only when the node count is truly fixed — it's
+the simplest thing that works, right up until you resize.
+</Callout>
+
+## Summary
+
+Modulo hashing (`hash % n`) is simple but catastrophic on resize: change `n` by
+one and nearly every key remaps, flushing your cache and stampeding your database.
+**Consistent hashing** puts servers and keys on a shared **ring** and walks
+clockwise to find each key's owner, so adding or removing a node moves only about
+**K/n keys** instead of all of them. Because a handful of servers carve the ring
+into uneven arcs, real systems use **virtual nodes** — hundreds of positions per
+server — to balance load and to weight bigger machines. This is exactly why
+**DynamoDB, Cassandra, Redis Cluster, and CDNs** lean on it: they scale, shrink,
+and survive failures without ever reshuffling the whole keyspace.

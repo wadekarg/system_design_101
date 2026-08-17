@@ -1,9 +1,9 @@
 ---
 title: "Rate Limiting"
-description: "Control the rate at which clients can make requests to protect your system from abuse, ensure fair usage, and prevent cascading overload."
+description: "How to cap how fast clients can hit your API — the algorithms, where to enforce them, and the traps that let bursts slip through."
 order: 1
 difficulty: Intermediate
-readTime: "11 min read"
+readTime: "10 min read"
 diagram: RateLimitingDiagram
 relatedTopics:
   - patterns/api-gateway
@@ -13,57 +13,228 @@ takeaways:
   - "Fixed window has an edge case: 2x burst at window boundaries — sliding window fixes this"
   - "Always apply rate limiting at the edge (API gateway) not in each microservice"
   - "Distributed rate limiting requires a shared store like Redis"
+quiz:
+  - question: "An idle client suddenly fires 50 requests at once, and you want to allow that short burst but still cap the long-run average at 10 requests/second. Which algorithm fits best?"
+    options:
+      - "Token bucket"
+      - "Leaky bucket"
+      - "Fixed window"
+      - "Sliding window log"
+    answer: 0
+    explanation: "Token bucket accumulates tokens while idle (up to capacity), so a client can spend them in a burst, then is throttled to the refill rate. Leaky bucket would smooth the burst out to a steady drip, defeating the goal."
+  - question: "With a fixed-window limit of 100 req/min, a client sends 100 requests at 12:00:59 and 100 more at 12:01:00. Why is this a problem?"
+    options:
+      - "The counter never resets, so the client is banned"
+      - "It uses too much memory storing timestamps"
+      - "200 requests land in a ~2-second span — double the intended rate at the window boundary"
+      - "Redis can't increment fast enough"
+    answer: 2
+    explanation: "Fixed window resets the counter on a hard boundary, so quota from two adjacent windows can stack at the seam, allowing up to 2x the limit briefly. Sliding window counter or log smooths this out."
+  - question: "You run 5 API servers, each with its own in-memory counter set to 100 req/min per client. What actually happens?"
+    options:
+      - "Each client is correctly limited to 100 req/min total"
+      - "A client can hit ~500 req/min by spreading requests across the 5 servers"
+      - "The limit drops to 20 req/min per client"
+      - "Requests fail because counters conflict"
+    answer: 1
+    explanation: "Local counters each only see their own slice of traffic, so the effective limit multiplies by the server count. You need a shared store like Redis with atomic increments to enforce one global limit."
+  - question: "Your token-bucket limiter uses Redis, and under load two servers check-and-update the same key at the same instant, occasionally letting an extra request through. What's the right fix?"
+    options:
+      - "Switch every client to the fixed-window algorithm"
+      - "Add more Redis replicas to spread the reads"
+      - "Increase the bucket capacity so the overshoot doesn't matter"
+      - "Make the check-and-decrement atomic (e.g. a Redis Lua script)"
+    answer: 3
+    explanation: "The bug is a race between read and write. Wrapping the check-and-update in a single atomic operation (a Lua script or atomic Redis command) closes the window. Adding replicas or capacity doesn't fix the race."
 ---
 
-## Why Rate Limiting
+<Callout type="analogy">
+Think of a nightclub with a bouncer. The club holds a fixed number of people,
+and the bouncer's job is to make sure **no single rowdy group takes over the
+whole floor**. Some clubs let a group in all at once if there's room (bursty);
+others let people in one at a time on a strict cadence (smooth).
 
-Every public-facing service is a target. Without controls on how frequently clients can make requests, a single misbehaving client — whether a bug in someone's integration code, an aggressive scraper, or a deliberate denial-of-service attack — can exhaust your server capacity and degrade service for everyone else.
+**Rate limiting** is that bouncer for your API. Each client gets a quota, and
+once they've used it up they wait outside — you send back an **HTTP 429 (Too
+Many Requests)** instead of letting them crash the party for everyone else.
+</Callout>
 
-Rate limiting imposes a ceiling on the number of requests a client can make within a given time window. When a client exceeds its quota, the server rejects further requests (typically returning HTTP 429 Too Many Requests) until the window resets or new capacity is available. The goal is not to punish legitimate users; it is to ensure that no single client can monopolize shared infrastructure at the expense of others.
+## Why rate limiting
 
-Beyond protection, rate limiting enables fair usage enforcement, tiered service offerings (free vs. paid tiers with different quotas), and predictable capacity planning. If you know each API key is limited to 1,000 requests per minute, you can size your infrastructure to handle that load and offer SLAs accordingly. Rate limiting is a foundational building block of any production API.
+Every public endpoint is a target. Without a cap on how often clients can call
+you, one misbehaving client — a bug in someone's integration, an aggressive
+scraper, or a deliberate **denial-of-service attack** — can eat your whole
+server capacity and degrade service for everyone.
 
-## Algorithms
+Rate limiting puts a ceiling on how many requests a client makes in a time
+window. Exceed it and the server rejects further requests (usually **429 Too
+Many Requests**) until the window resets. The goal isn't to punish good users —
+it's to stop any one client from monopolizing shared infrastructure.
 
-Several distinct algorithms implement rate limiting, each with different characteristics around burst handling, memory usage, and implementation complexity.
+Beyond protection, it also enables:
 
-**Token Bucket** is the most widely used algorithm. Imagine a bucket that holds up to `capacity` tokens. Tokens are added to the bucket at a fixed refill rate (for example, 10 tokens per second). Each incoming request consumes one token. If the bucket has tokens available, the request is allowed and a token is removed. If the bucket is empty, the request is rejected. The key property of the token bucket is that it allows bursting: if no requests have arrived for several seconds, tokens accumulate in the bucket (up to `capacity`). A client that has been idle can then send a burst of requests up to the bucket's capacity all at once. This is desirable behavior — legitimate clients often have bursty traffic patterns, and penalizing them for burst arrivals feels overly restrictive. AWS API Gateway, Stripe, and most modern rate limiters use the token bucket algorithm internally.
+- **Fair usage** — no single caller starves the rest.
+- **Tiered pricing** — free tier gets 100 req/min, paid gets 10,000.
+- **Capacity planning** — if every key is capped, you can size infra and offer SLAs.
 
-**Leaking Bucket** (also called leaky bucket) takes the opposite approach. Instead of a bucket that fills with tokens, imagine a bucket with a hole at the bottom. Incoming requests fill the bucket, and the bucket drains at a fixed constant rate. If the bucket overflows (receives requests faster than it drains), excess requests are dropped. The leaking bucket enforces a strict, smooth output rate — no matter how fast requests arrive, they exit the system at a constant pace. This makes it attractive when you need predictable throughput, such as when feeding requests to a backend that cannot tolerate burst traffic. The downside is that legitimate bursts are smoothed out, which can feel slow to clients that have been waiting.
+<Callout type="tip">
+Standard limits in the wild: the Twitter/X API historically allowed ~900
+requests per 15-minute window per endpoint; GitHub's REST API gives
+authenticated clients 5,000 requests/hour. These are per-**client** ceilings,
+which is why they key on the API token, not the IP.
+</Callout>
 
-**Fixed Window** is the simplest algorithm. Divide time into discrete windows (for example, each minute from :00 to :59). Maintain a counter per client per window. Each request increments the counter; if the counter exceeds the limit, the request is rejected. When the next window starts, the counter resets to zero. Fixed window is easy to implement and reason about. Its critical weakness is the boundary edge case: a client can send the full quota at the end of one window and the full quota again at the start of the next window, effectively doubling the allowed rate for a brief period. For example, with a limit of 100 requests/minute, a client can fire 100 requests at 12:00:59 and 100 more at 12:01:00 — 200 requests in a two-second span.
+## The algorithms
 
-**Sliding Window Log** fixes the edge case by recording the exact timestamp of every request in a sorted log. To check if a new request is allowed, discard all entries older than one window and count the remaining entries. If the count is below the limit, the request is allowed and its timestamp is logged. If the count is at or above the limit, the request is rejected. The sliding window log is exact — it never allows boundary bursts — but it is expensive in memory. Each request requires storing a timestamp, and for a client sending thousands of requests per minute, the log grows large. This makes it impractical for high-throughput scenarios.
+Several algorithms implement rate limiting. They differ mainly in **how they
+handle bursts** and **how much memory they cost**.
 
-**Sliding Window Counter** is an approximation that achieves memory efficiency close to fixed window while solving the boundary burst problem. It uses the counters from the current window and the previous window, weighted by how far into the current window you are. The formula is:
+**Token bucket** is the most widely used. Picture a bucket holding up to
+`capacity` tokens. Tokens refill at a fixed rate (say 10/second). Each request
+spends one token; if the bucket is empty, the request is rejected. The key
+trait: while idle, tokens **accumulate**, so a client can send a burst up to the
+bucket's capacity all at once. That's usually *desirable* — real traffic is
+bursty, and legitimate clients shouldn't be punished for it. AWS API Gateway and
+Stripe use token bucket internally.
+
+**Leaky bucket** takes the opposite tack. Picture a bucket with a hole in the
+bottom: requests fill it, and it drains at a fixed constant rate. Overflow gets
+dropped. This enforces a **strict, smooth output rate** — no matter how fast
+requests arrive, they leave at a steady pace. Great when the backend can't
+tolerate bursts, but it smooths out legitimate spikes, which can feel slow.
+
+**Fixed window** is the simplest. Chop time into windows (each minute :00–:59),
+keep a counter per client per window, increment on each request, reject over the
+limit, reset when the next window starts. Easy to build and reason about — but
+it has a nasty **boundary edge case**: a client can send the full quota at the
+end of one window and again at the start of the next, briefly **doubling** the
+rate (100 req at 12:00:59 + 100 req at 12:01:00 = 200 in two seconds).
+
+**Sliding window log** fixes that by recording the exact **timestamp** of every
+request. To check a new one, drop all timestamps older than one window and count
+what's left; allow if under the limit. It's **exact** — no boundary bursts — but
+**memory-hungry**: one entry per request means the log explodes at high volume.
+
+**Sliding window counter** is the pragmatic middle ground. It blends the current
+and previous window's counts, weighted by how far into the current window you
+are:
 
 ```
 current_count + previous_count * (1 - elapsed_fraction_of_current_window)
 ```
 
-If 40% of the current minute has elapsed, the effective rate is estimated as the current window's count plus 60% of the previous window's count. This approximation is very accurate in practice — the error is at most 5-10% — and requires only two counters per client, making it far more memory-efficient than the sliding window log.
+If 40% of the current minute has elapsed, the estimate is the current count plus
+60% of the previous window's count. The error is only ~5–10%, and it needs just
+**two counters per client** — nearly as cheap as fixed window, without the
+boundary bug.
 
-## Where to Apply
+| Algorithm | Bursts | Memory | Output rate | Boundary bug? |
+|---|---|---|---|---|
+| **Token bucket** | Allows (up to capacity) | Tiny (2 values) | Bursty then throttled | No |
+| **Leaky bucket** | Smooths them out | Small (queue) | Strictly constant | No |
+| **Fixed window** | Allows 2x at seams | Tiny (1 counter) | Uneven | **Yes** |
+| **Sliding window log** | Blocks precisely | Large (per-request) | Even | No |
+| **Sliding window counter** | Blocks (approx) | Tiny (2 counters) | Even | No (approx) |
 
-Rate limiting can be applied at multiple points in your system, but the right place for most cases is the edge: the API gateway or load balancer that all inbound traffic passes through. Applying rate limiting at the edge has several advantages. First, it stops excess traffic before it consumes any application-layer resources — the rejected request never reaches your microservices. Second, it provides a single place to configure and update rate limiting policies. Third, it handles the case where multiple microservices are downstream targets: you do not need to implement and maintain rate limiting logic in every service independently.
+<Callout type="tip">
+Rule of thumb: reach for **token bucket** when you want to permit bursts (most
+public APIs), **leaky bucket** when a fragile backend needs a steady drip, and
+**sliding window counter** when you want fixed-window cheapness without the 2x
+boundary leak.
+</Callout>
 
-If rate limiting is applied within individual microservices, you face two problems. One, each service sees only the requests that reach it, not the total request rate from a client — if a client hammers five different endpoints simultaneously, no single service sees the full picture. Two, you must implement, test, and operate rate limiting logic in every service, multiplying operational complexity. The practical advice: implement rate limiting once, at the gateway, and configure policies per route or per client tier.
+## Where this shows up
 
-## Rate Limiting Headers
+- **API gateways (AWS, Kong, Stripe)** → token bucket at the edge, so a rejected
+  request never touches a microservice and one config governs all downstream routes.
+- **Message/video pipelines feeding a fragile backend** → leaky bucket, because
+  the downstream system needs a smooth, predictable rate more than it needs speed.
+- **Login / OTP / password-reset endpoints** → tight sliding-window limits per
+  account and per IP to blunt brute-force and credential-stuffing attacks.
+- **Free vs. paid API tiers** → same algorithm, different quotas keyed on the API
+  token, so pricing tiers map directly to rate-limit policies.
 
-When a client is rate limited, it needs enough information to back off gracefully and retry later. HTTP conventions provide standard response headers for this purpose:
+## Where to enforce it
 
-- `X-RateLimit-Limit`: the maximum number of requests allowed in the current window
-- `X-RateLimit-Remaining`: the number of requests remaining in the current window
-- `X-RateLimit-Reset`: the Unix timestamp at which the current window resets and the counter returns to zero
-- `Retry-After`: (included in 429 responses) the number of seconds to wait before retrying
+The right place for most systems is the **edge** — the **API gateway** or load
+balancer that all inbound traffic passes through. Enforcing there means:
 
-Well-behaved API clients read these headers and implement exponential backoff when they approach or exceed their limits. Providing these headers is not just good developer experience — it significantly reduces the number of wasted retries and the resulting load on your system from clients that otherwise hammer the endpoint repeatedly.
+- Excess traffic is dropped **before** it consumes any app-layer resources.
+- You get **one place** to configure and update policies.
+- You don't reimplement limiting logic in every microservice.
 
-## Distributed Rate Limiting
+Push it into individual services and two problems bite. First, each service only
+sees the requests that reach *it*, not the client's total rate — hammer five
+endpoints and no single service sees the full picture. Second, you now build,
+test, and operate limiter logic everywhere. The advice: **limit once, at the
+gateway**, with policies per route or client tier.
 
-A single-server rate limiter is straightforward: maintain an in-memory counter per client key and check it on each request. The complexity multiplies when your API is served by a fleet of servers. If each server maintains its own local counter, a client can simply send requests to different servers and exceed the intended limit many times over. Distributed rate limiting requires a shared counter store that all servers read from and write to atomically.
+<Callout type="tip">
+When a client is throttled, hand it the info to back off gracefully. The
+conventional headers are `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+`X-RateLimit-Reset` (Unix timestamp of reset), and `Retry-After` (seconds to
+wait, sent on 429s). Well-behaved clients read these and back off instead of
+hammering you with wasted retries.
+</Callout>
 
-Redis is the standard solution for distributed rate limiting. Redis's atomic increment commands (`INCRBY`, combined with `EXPIRE` for TTL management) allow multiple application servers to share a consistent view of each client's request count without race conditions. A typical implementation uses a Redis key like `ratelimit:{client_id}:{window}` and a pipeline of `INCR` + `EXPIRE` commands in a single round-trip. The Lua scripting capability in Redis allows you to execute multi-step atomic operations, which is essential for algorithms like token bucket where the check-and-update must be atomic to avoid allowing a burst when two servers check simultaneously.
+## Pressure points
 
-The trade-off of this approach is latency: every request to your API now requires a round-trip to Redis. For most applications this is acceptable — Redis round-trips are typically sub-millisecond on a co-located network. For extremely latency-sensitive paths, a common pattern is to use local in-memory counters as a first-pass filter, falling back to Redis only when the local counter approaches the limit. This reduces Redis calls substantially while still providing distributed correctness for the cases that matter.
+<Callout type="warning">
+Rate limiting quietly breaks in distributed setups. Three traps:
+
+- **Per-server counters lie.** Run a fleet with local in-memory counters and a
+  client just spreads requests across servers, blowing past the intended limit
+  by the server count. You need a **shared store**.
+- **Bursty traffic vs. strict smoothing.** Pick leaky bucket and legitimate
+  bursts get throttled and feel slow; pick fixed window and bursts leak through
+  at window boundaries. Match the algorithm to the traffic shape.
+- **Thundering herd at window reset.** With fixed windows, every throttled client
+  is told to retry at the *same* reset instant — so they all stampede back at
+  once, spiking load the moment the window flips. Randomized **jitter** on
+  `Retry-After` spreads them out.
+</Callout>
+
+## Handling the pressure points
+
+- **Shared, atomic counters.** Use **Redis** as the shared store. `INCR` +
+  `EXPIRE` on a key like `ratelimit:{client}:{window}` gives all servers one
+  consistent view. For token bucket, wrap check-and-decrement in a **Lua script**
+  so two servers can't both pass the same last token — the update must be *atomic*.
+- **Two-tier counters for latency.** Every request now costs a Redis round-trip
+  (usually sub-millisecond co-located, but not free). On hot paths, keep a local
+  in-memory counter as a first-pass filter and only consult Redis as the client
+  nears the limit — far fewer Redis calls, still globally correct where it matters.
+- **Jitter the retries.** Add randomness to `Retry-After` so throttled clients
+  don't all return at the same tick and re-create the overload.
+- **Pick the algorithm for the traffic.** Bursty clients → token bucket; fragile
+  backend → leaky bucket; cheap-and-accurate → sliding window counter.
+
+## Alternatives & related ideas
+
+<Callout type="alternative">
+Rate limiting isn't the only lever for protecting a system:
+
+- **Load shedding** drops low-priority requests once the server is already
+  saturated — a reactive last resort, versus rate limiting's proactive quota.
+- **Backpressure** pushes the "slow down" signal upstream through queues so
+  producers naturally throttle themselves.
+- **Circuit breakers** stop calling a failing downstream entirely, protecting it
+  from a retry storm rather than capping per-client rate.
+- **Quotas / throttling tiers** cap usage over long horizons (per day/month) for
+  billing, layered on top of the short-window rate limits above.
+
+Use rate limiting to enforce *fairness and per-client caps*; reach for these when
+the goal is *surviving overload* or *protecting a specific dependency*.
+</Callout>
+
+## Summary
+
+Rate limiting caps how fast each client can call you, rejecting the excess with a
+**429** so no single caller can starve the rest. **Token bucket** permits bursts
+then throttles to a refill rate; **leaky bucket** enforces a strictly smooth
+output; **fixed window** is cheap but leaks a 2x burst at boundaries, which
+**sliding window** (log or counter) fixes. Enforce it once at the **edge**, and
+in a fleet back it with a **shared, atomic store like Redis** — local counters
+multiply the real limit by the number of servers. Watch for the thundering herd
+at window reset, and add jitter so throttled clients don't all stampede back at
+the same instant.
