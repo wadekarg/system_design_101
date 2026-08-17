@@ -1,9 +1,9 @@
 ---
 title: "Load Balancing"
-description: "Distribute incoming traffic across multiple servers to achieve horizontal scalability, eliminate single points of failure, and keep response times low."
+description: "How a single traffic cop spreads requests across many servers so no one machine drowns — plus the algorithms, layers, and failure modes that decide how well it works."
 order: 1
 difficulty: Intermediate
-readTime: "12 min read"
+readTime: "11 min read"
 diagram: LoadBalancingDiagram
 relatedTopics:
   - fundamentals/availability-reliability
@@ -14,60 +14,213 @@ takeaways:
   - "L7 load balancers can make routing decisions based on HTTP headers and URL paths"
   - "Health checks automatically remove failed servers from the pool without manual intervention"
   - "The load balancer itself must be redundant — it can become a single point of failure"
+quiz:
+  - question: "Your app streams large video uploads, so some connections stay open for minutes while others finish in milliseconds. Which balancing algorithm keeps load evenest?"
+    options:
+      - "Round Robin"
+      - "Least Connections"
+      - "IP Hash"
+      - "Random"
+    answer: 1
+    explanation: "Least Connections sends each new request to the server with the fewest open connections, so a box tied up with slow uploads stops receiving new ones. Round Robin would keep piling requests onto a busy server because it ignores how long each request lasts."
+  - question: "You need to route `/api/*` to your app servers and `/static/*` to a file-serving pool, based on the URL path. What must your load balancer be?"
+    options:
+      - "A Layer 4 (TCP) load balancer"
+      - "A Layer 7 (HTTP) load balancer"
+      - "A DNS round-robin setup"
+      - "Any load balancer can do this"
+    answer: 1
+    explanation: "Only a Layer 7 load balancer parses the HTTP request, so only it can see the URL path and route on it. An L4 balancer sees just IPs and ports — it has no idea what `/api/` even means."
+  - question: "A backend's `/health` endpoint returns 200 OK, but it always returns 200 without checking its database connection. The database is down. What happens?"
+    options:
+      - "The load balancer removes the server automatically"
+      - "The load balancer keeps sending it traffic, and those requests fail"
+      - "Passive health checks catch it instantly"
+      - "The server restarts itself"
+    answer: 1
+    explanation: "A health check is only as good as what it verifies. A 'shallow' check that always says 200 keeps a broken server in rotation, so users get errors. Good health endpoints check critical dependencies like the DB connection pool."
+  - question: "You run a single load balancer in front of a healthy pool of 10 servers. The load balancer process crashes. What is the impact?"
+    options:
+      - "Nothing — the servers keep serving directly"
+      - "One-tenth of traffic is lost"
+      - "All traffic stops — the LB is a single point of failure"
+      - "Requests automatically reroute via DNS"
+    answer: 2
+    explanation: "Every request flows through the load balancer, so if the only one dies, everything stops — no matter how healthy the backends are. That's why production runs redundant LBs behind DNS round-robin or anycast."
 ---
 
-## What is Load Balancing
+<Callout type="analogy">
+Picture a busy restaurant with one host at the door and ten tables of waiters.
+The **host** doesn't cook anything — their whole job is to seat each new party at
+whichever table can take them, so no single waiter gets slammed while others
+stand around idle.
 
-A load balancer is a component that sits between clients and a pool of backend servers, accepting incoming requests and forwarding each one to one of the available servers according to some algorithm. The core purpose is to prevent any single server from becoming a bottleneck — as request volume grows, you add more servers to the pool and the load balancer automatically spreads work across all of them. This is the mechanism that enables horizontal scaling: the ability to handle more load by adding machines rather than by buying a single more powerful one.
+A **load balancer** is that host for your servers. It stands in front of the
+pool, greets every incoming request, and hands it to a server that can handle it.
+If a waiter walks out mid-shift (a server crashes), the host simply stops seating
+new parties there — and the diners never notice.
+</Callout>
 
-Without a load balancer, the only way to serve more traffic is to upgrade the one machine handling it. That approach (vertical scaling) hits physical limits and is expensive. With a load balancer in front of ten identical web servers, you can handle ten times the traffic of a single server, and adding an eleventh server is a matter of registering it with the load balancer — no downtime required.
+## What a load balancer actually does
 
-Load balancers also improve availability. If one of your ten servers crashes, the load balancer detects its failure through health checks and stops sending it traffic. The remaining nine servers absorb the dropped server's share. From the client's perspective, nothing went wrong. This automatic failure handling is one of the most valuable properties a load balancer brings, especially in production systems where individual server failures are a routine occurrence rather than an emergency.
+A **load balancer** sits between your clients and a pool of backend servers. It
+accepts every incoming request and forwards it to one of the available servers
+using some **algorithm**. The goal is simple: stop any single server from
+becoming a bottleneck.
 
-## Load Balancing Algorithms
+This is what makes **horizontal scaling** possible — handling more load by adding
+machines instead of buying one giant one. Put a load balancer in front of ten
+identical web servers and you can serve roughly ten times the traffic of one.
+Adding an eleventh server is just registering it with the balancer. No downtime.
 
-Different algorithms make different trade-offs between simplicity, performance, and correctness. Choosing the right one depends on the characteristics of your workload.
+It also buys you **availability**. If a server crashes, the load balancer notices
+(via **health checks**) and stops routing to it. The other nine absorb the slack.
+From the client's side, nothing broke.
 
-**Round Robin** is the simplest algorithm: requests are sent to servers in a rotating sequence — server 1, server 2, server 3, server 1, server 2, and so on. It requires no state and works well when all servers are equally powerful and all requests take roughly the same time to process. Its weakness is that it treats a 2-millisecond request the same as a 2-second request, so a server that happens to receive a batch of slow requests can get overwhelmed while others sit idle.
+<Callout type="tip">
+The alternative to horizontal scaling is **vertical scaling** — buying a bigger
+box. That works until it doesn't: physical limits are real, and the top-end
+machine costs far more per unit of power than several mid-range ones. Load
+balancing is how you escape that ceiling.
+</Callout>
 
-**Least Connections** routes each new request to the server that currently has the fewest active connections. This is a better fit for workloads where request durations vary significantly — long-lived connections, file uploads, streaming. A server already processing ten slow requests will receive fewer new requests than a server that just finished processing and has two connections open. The trade-off is that the load balancer must track connection counts, which adds a small amount of state and overhead.
+## Load balancing algorithms
 
-**IP Hash** uses a hash of the client's IP address to determine which server receives the request. The same IP always maps to the same server, making this an implicit form of sticky sessions (described below). It is simple and requires no per-session state in the load balancer itself, but it can cause uneven distribution when many clients share an IP (as they do behind corporate NAT gateways), and changing the number of servers breaks all existing session mappings.
+The algorithm decides *which* server gets the next request. Different algorithms
+trade simplicity for smarter distribution.
 
-**Weighted Round Robin / Weighted Least Connections** extend the basic algorithms by assigning a weight to each server proportional to its capacity. A server with twice the CPU and memory of another might receive weight 2, meaning it receives twice as many requests. This lets you mix servers of different sizes in the same pool without over- or under-utilizing them.
+- **Round Robin** — hand requests out in a rotating cycle: server 1, 2, 3, 1, 2…
+  Dead simple, needs no state, and works great when all servers are equal and all
+  requests take about the same time. Its weakness: it treats a 2 ms request and a
+  2 second request identically, so a box that catches a run of slow requests can
+  get buried while others idle.
+- **Least Connections** — send each request to the server with the fewest open
+  connections. Much better when request durations vary wildly (uploads, streaming,
+  long-lived connections). The cost is a little state: the balancer has to track
+  connection counts.
+- **IP Hash** — hash the client's IP to pick a server, so the same client always
+  lands on the same box. It's an implicit form of **sticky sessions** with no
+  per-session state. But it distributes unevenly when many clients share one IP
+  (corporate NAT), and changing the server count reshuffles everyone.
+- **Weighted variants** — give beefier servers a higher **weight** so they receive
+  proportionally more traffic. This lets you mix different-sized machines in one
+  pool without over- or under-loading any of them.
+
+<Callout type="tip">
+In practice, **Round Robin** and **Least Connections** cover the vast majority of
+real deployments. Reach for IP Hash only when you genuinely need affinity and
+can't externalize session state (see below) — it's usually the wrong first choice.
+</Callout>
 
 ## Layer 4 vs Layer 7
 
-Load balancers operate at different layers of the network stack, and the layer determines what information is available for routing decisions.
+Where the load balancer sits in the network stack decides how much it can *see* —
+and therefore how smart its routing can be.
 
-A **Layer 4 load balancer** operates at the transport layer (TCP/UDP). It sees source and destination IP addresses and ports, but does not inspect the content of the packets. Routing decisions are made purely on network-level information. Because L4 load balancers do not need to parse application-layer protocols, they are extremely fast and can handle millions of connections per second with minimal CPU overhead. HAProxy in TCP mode is a classic example. L4 load balancers are appropriate when you need raw throughput and do not need content-based routing.
+| | **Layer 4 (Transport)** | **Layer 7 (Application)** |
+|---|---|---|
+| Operates on | TCP / UDP | HTTP / HTTPS |
+| Can see | Source/dest IP + port | URL path, method, headers, cookies, body |
+| Routing decisions | Network-level only | Content-based (`/api/*` vs `/static/*`, headers, canary) |
+| Speed | Extremely fast, millions of conns/sec | Slightly more CPU to parse requests |
+| Examples | HAProxy (TCP mode), AWS NLB | Nginx, AWS ALB, Caddy |
+| Use when | You need raw throughput, no content routing | You need smart, HTTP-aware routing |
 
-A **Layer 7 load balancer** operates at the application layer (HTTP/HTTPS). It fully parses the request — reading the URL path, HTTP method, headers, and sometimes the request body — before deciding where to route it. This unlocks powerful routing capabilities: you can send `/api/*` requests to your API servers while routing `/static/*` requests to a different pool that serves files from object storage. You can route requests with a `X-Beta-User: true` header to a canary deployment. You can inspect cookies to implement sticky sessions. Nginx, AWS Application Load Balancer (ALB), and Caddy are common Layer 7 load balancers. The cost is slightly higher CPU overhead for request parsing, which is negligible in most systems but matters at very high throughput.
+A **Layer 4** load balancer forwards packets based only on IPs and ports. It never
+reads the payload, so it's blazing fast and cheap. A **Layer 7** load balancer
+fully parses the HTTP request, which unlocks powerful tricks: route `/api/*` to
+app servers and `/static/*` to a file pool, send `X-Beta-User: true` traffic to a
+canary, or read cookies for sticky sessions. The only cost is a bit of CPU to
+parse — negligible except at extreme throughput.
 
-## Health Checks
+## Health checks
 
-Health checks are the mechanism load balancers use to determine which backend servers are fit to receive traffic. Without health checks, a load balancer would continue routing requests to a crashed server, causing those requests to fail from the client's perspective.
+**Health checks** are how the balancer knows which backends are fit for traffic.
+Without them, it would keep routing to a crashed server and every one of those
+requests would fail.
 
-Passive health checks detect failures from real traffic: if a request to a backend results in a connection refused error or a TCP timeout, the load balancer marks that backend as unhealthy. Passive checks are reactive — they detect failures only after a real user experiences one.
+- **Passive checks** are reactive: if a real request hits a connection-refused
+  error or TCP timeout, the balancer marks that backend unhealthy. The downside —
+  it only learns *after* a real user already got burned.
+- **Active checks** are proactive: the balancer periodically probes a dedicated
+  endpoint (like `/health`) on each backend. Non-200, too slow, or no response →
+  removed from rotation. When probes succeed again, it's restored. This catches
+  failures *before* user traffic hits them and tolerates transient blips.
 
-Active health checks are proactive: the load balancer itself periodically sends a probe request to each backend (often a dedicated endpoint like `/health` or `/ping`) and evaluates the response. If the backend returns a non-200 response, or takes longer than a configured timeout, or does not respond at all, it is marked unhealthy and removed from the rotation. When a subsequent health check succeeds, it is restored to rotation. Active health checks mean that transient failures — a temporary connection spike, a brief memory pressure event — do not permanently remove a server, and catastrophic failures are detected before real user traffic hits them.
+<Callout type="warning">
+The classic trap: a **shallow health check** that returns 200 OK without verifying
+anything. If `/health` doesn't confirm the database connection, downstream deps, or
+the connection pool, a server whose DB is *down* still looks healthy — so the
+balancer keeps feeding it doomed requests. But go too deep and the check itself
+becomes a load source. **Check the critical dependencies quickly, and nothing
+more.**
+</Callout>
 
-Designing good health check endpoints requires thought. A health check that simply returns 200 OK without checking internal state (database connectivity, downstream dependencies) will pass even when the server is unable to do real work. A health check that performs heavy operations will itself add load. A good health endpoint checks the most critical dependencies quickly — for example, verifying that the database connection pool has available connections — and returns an appropriate error code if critical dependencies are unavailable.
+## Session persistence
 
-## Session Persistence
+HTTP is stateless, yet many apps stash **session state** on an individual server —
+in memory or a local file. That breaks under load balancing: if your first request
+lands on server A but your second goes to server B, server B has no clue about your
+session, and you're suddenly logged out or your cart is empty.
 
-HTTP is stateless by design, but many web applications store user session state on individual servers — in memory, or in a local file. This creates a problem with load balancing: if a user's first request lands on server A, and their session is stored there, routing their second request to server B means server B has no knowledge of their session, and they may be logged out or lose their shopping cart.
+**Sticky sessions** (aka session affinity) fix this by pinning a client to the same
+backend, using a session cookie or the client's IP. It works, but it's a
+compromise: if that server dies, those sessions die with it, and load skews toward
+whichever box collected the long-lived sessions.
 
-Sticky sessions (also called session affinity or session persistence) solve this by ensuring requests from the same client always go to the same backend server. The load balancer uses a session cookie or the client's IP address to identify which server owns that client's session, and all subsequent requests are routed accordingly.
+The cleaner fix is to **externalize session state** to a shared store (Redis is the
+go-to). Now any server can handle any request, sticky sessions become unnecessary,
+and load balancing is genuinely stateless.
 
-Sticky sessions are a pragmatic solution but come with trade-offs. If the server holding a user's sessions crashes, all of those sessions are lost regardless. Sticky sessions also mean that load is not perfectly distributed — if one server accumulates many long-lived sessions, it carries more load than others. The cleaner architectural solution is to externalize session state to a shared store (Redis is commonly used for this), so that any server can handle any request. With externalized sessions, sticky sessions become unnecessary and load balancing is genuinely stateless.
+## Where this shows up in real systems
 
-## Common Load Balancers
+- **High-traffic web apps (any large site)** → an L7 balancer like Nginx or ALB out
+  front, routing by path and running health checks, so app servers stay
+  interchangeable and disposable.
+- **Ultra-high-throughput or non-HTTP traffic (gaming, VoIP, databases)** → an L4
+  balancer like AWS NLB or HAProxy in TCP mode, because raw packet-forwarding speed
+  matters more than content-aware routing.
+- **APIs with mixed endpoints** → L7 path-based routing splits `/api/*`,
+  `/static/*`, and `/admin/*` to purpose-built pools.
+- **Canary / blue-green deploys** → L7 header- or weight-based routing sends a small
+  slice of traffic to the new version before the full rollout.
+- **Stateful legacy apps** → sticky sessions as a bridge until session state can be
+  externalized to Redis.
 
-**HAProxy** is a battle-tested open-source load balancer widely used for both L4 and L7 workloads. It is known for exceptional performance, a rich feature set, and detailed metrics. Many large organizations run HAProxy at the edge of their infrastructure.
+## Handling the pressure points
 
-**Nginx** operates primarily as an L7 reverse proxy and load balancer. It is extremely common as a web server and load balancer combined — serving static files directly while proxying dynamic requests to backend application servers. Its configuration language is expressive and well-documented.
+- **The load balancer is itself a single point of failure.** Run at least two,
+  fronted by **DNS round-robin** (multiple LB IPs) or **anycast** (many servers
+  sharing one IP, BGP routes to the nearest healthy one). Cloud-managed LBs do this
+  for you.
+- **Uneven load from IP Hash or sticky sessions?** Move to Least Connections and
+  externalize sessions to Redis so any server can take any request.
+- **Servers flapping in and out of rotation?** Tune health-check thresholds
+  (require N consecutive failures) so a brief blip doesn't yank a healthy server.
+- **A slow backend dragging p99?** Combine active health checks with per-request
+  timeouts so the balancer routes around a degraded — not just dead — server.
 
-**AWS Application Load Balancer (ALB)** and **AWS Network Load Balancer (NLB)** are managed services. ALB operates at L7 and integrates natively with AWS services (ECS, Lambda, cognito-based authentication). NLB operates at L4 and is capable of handling millions of requests per second with ultra-low latency.
+## Alternatives & related ideas
 
-One critical concern: the load balancer itself can be a single point of failure. If you have one load balancer and it goes down, all traffic stops. High-availability deployments use multiple load balancer instances with DNS round-robin (distributing traffic across multiple LB IPs) or anycast routing (multiple servers sharing a single IP address, with BGP routing requests to the nearest healthy one). Cloud-managed load balancers handle this transparently, but self-hosted setups must explicitly design for load balancer redundancy.
+<Callout type="alternative">
+A load balancer isn't the only way to spread traffic. **DNS round-robin** hands out
+rotating IPs at resolution time — cheap and global, but with no health awareness and
+slow failover (clients cache DNS). **Anycast** advertises one IP from many locations
+and lets the network route to the nearest, which is how CDNs and global services get
+users to a close edge. And **client-side load balancing** (common in service meshes
+like Envoy/Istio) pushes the decision into the caller, skipping a central hop
+entirely. Most large systems layer these: anycast/DNS to pick a region, then a real
+load balancer inside it.
+</Callout>
+
+## Summary
+
+A load balancer is the host at the door of your server pool: it takes every request
+and hands it to a server that can handle it, which is what makes **horizontal
+scaling** and high availability possible. The **algorithm** (Round Robin, Least
+Connections, IP Hash, weighted) decides *how* it spreads load, and the **layer**
+(L4 for raw speed, L7 for content-aware routing) decides *what* it can route on.
+**Health checks** keep dead and degraded servers out of rotation — but only if they
+verify real dependencies, not just return 200. Finally, remember the balancer is
+itself a single point of failure, so always run it redundantly behind DNS
+round-robin or anycast.

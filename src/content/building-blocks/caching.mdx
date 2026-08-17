@@ -1,9 +1,9 @@
 ---
 title: "Caching"
-description: "Store frequently accessed data in fast storage to avoid slow re-computation or database calls — the single most impactful optimization in most systems."
+description: "Keep a fast copy of expensive data close by so you stop redoing slow work — the single highest-leverage optimization in most systems, if you get invalidation right."
 order: 2
 difficulty: Intermediate
-readTime: "14 min read"
+readTime: "13 min read"
 diagram: CachingDiagram
 relatedTopics:
   - building-blocks/cdn
@@ -14,74 +14,143 @@ takeaways:
   - "Cache invalidation is notoriously difficult — design your invalidation strategy early"
   - "LRU eviction works well for most general-purpose caching workloads"
   - "Redis supports rich data structures and persistence; Memcached is simpler and faster for plain key-value"
+quiz:
+  - question: "Your product page runs a heavy pricing query on every load. Prices change a few times a day, and showing a price that's up to 5 minutes stale is fine for the business. What's the cleanest first move?"
+    options:
+      - "Cache the result with a short TTL (e.g. 5 minutes)"
+      - "Use write-back caching to speed up the price updates"
+      - "Skip caching — the data isn't perfectly accurate anyway"
+      - "Cache forever and never invalidate"
+    answer: 0
+    explanation: "Read-heavy, rarely-changing data where a little staleness is acceptable is the textbook cache candidate — a short TTL bounds the staleness automatically. Write-back is about write speed, not reads, and 'cache forever' would leave prices permanently stale."
+  - question: "You track how many times each video is viewed. Writes are constant, an exact real-time count doesn't matter, and losing a few counts in a crash is tolerable. Which write strategy fits best?"
+    options:
+      - "Write-through, so the database is always exactly correct"
+      - "Write-around, so writes bypass the cache"
+      - "Write-back, batching updates to the database asynchronously"
+      - "No caching — just write straight to the database every time"
+    answer: 2
+    explanation: "Write-back acknowledges the cache write immediately and flushes to the database later, which is ideal for high-volume, loss-tolerant counters. Write-through would pay full database latency on every increment; write-around wouldn't help since you're reading the count back constantly."
+  - question: "A hugely popular cache key expires at midnight, and thousands of concurrent requests all miss at the same instant and slam the database. What actually prevents this?"
+    options:
+      - "Switch the eviction policy from LRU to LFU"
+      - "Add a bigger database connection pool"
+      - "Add random jitter to TTLs and let one request refill while others wait (locking)"
+      - "Lower the TTL so the key expires more often"
+    answer: 2
+    explanation: "This is a cache stampede. Staggering expiry with jitter and using a lock (single-flight refill) stops the herd from hitting the origin at once. A bigger pool just lets more of the flood through, and a shorter TTL makes synchronized expiry happen more often, not less."
+  - question: "A product's price changes and it appears in hundreds of cached search-result pages. You need those pages to reflect the new price quickly across several services. Which invalidation approach scales best?"
+    options:
+      - "Rely on TTL alone and wait for every entry to expire"
+      - "Have the write path manually delete all affected keys inline"
+      - "Publish a 'price changed' event; invalidation consumers purge the relevant keys"
+      - "Restart the cache to clear everything"
+    answer: 2
+    explanation: "Event-driven invalidation decouples the writer from every downstream cache and lets each service purge what it owns — the scalable fit for fan-out across microservices. Manual inline deletion forces the write path to know every key everywhere, and TTL-only leaves stale prices visible until expiry."
 ---
 
-## What is Caching
+<Callout type="analogy">
+Think of a **cache** like keeping your most-used spices on the counter instead of walking to the pantry every time you cook. The counter (fast storage) holds copies of what you reach for constantly, so you skip the slow trip.
 
-A cache is a layer of fast storage that sits between a client and the authoritative source of data. When a piece of data is expensive to produce — whether because it requires a database query, a computation, or a network call to a downstream service — a cache stores the result so that subsequent requests for the same data can be served from fast storage (usually RAM) instead of repeating the expensive operation.
+The catch is the same one every kitchen has: the counter copy can go **stale**. If you refill the pantry jar but forget the counter one, you're cooking with the old stuff. That single problem — keeping the copy in sync with the real thing — is what makes caching genuinely hard.
+</Callout>
 
-The fundamental trade-off is freshness versus speed. Cached data is, by definition, a copy that may diverge from the source of truth. The longer data lives in the cache, the greater the risk that it becomes stale. Caching is most appropriate for data that is read frequently, changed infrequently, and where serving slightly stale data is acceptable. User profile pictures, product catalog entries, rendered HTML fragments, and computation-heavy aggregates are all natural cache candidates. Account balances and inventory counts, where accuracy is critical, require more careful handling.
+## What a cache actually is
 
-In practice, caching is often the most impactful optimization you can make to a system's performance. A single cache hit that avoids a 50-millisecond database query can reduce page load time by half. When that database serves thousands of requests per second, adding a cache in front of it can eliminate 90% of the query load, allowing the database to handle far more total traffic without additional hardware.
+A **cache** is a layer of fast storage that sits between a client and the real source of data. When some data is **expensive to produce** — a database query, a heavy computation, a call to another service — you stash the result so the *next* request for it comes back from fast storage (usually RAM) instead of redoing the work.
 
-## Cache Hit vs Miss
+The core trade-off is **freshness versus speed**. A cached value is a copy, and copies drift from the original over time. The longer it lives in the cache, the more likely it's **stale**.
 
-A cache hit occurs when the requested data is present in the cache and returned directly. A cache miss occurs when the data is not in the cache — the system must fall back to the authoritative source, retrieve the data, store it in the cache, and return it to the caller. Subsequent requests for the same data will find it in the cache (a hit).
+So caching shines for data that is:
 
-The **hit ratio** (also called hit rate) is the fraction of requests that are served from the cache, expressed as a percentage. A hit ratio of 95% means 95% of requests are served from cache and only 5% require a database or compute round-trip. The hit ratio is the primary health metric for a cache. Low hit ratios indicate that either the working set (the set of data actually being accessed) is too large for the cache, or that cache keys are too specific, or that data is being evicted too aggressively.
+- **Read often** — you get many hits per stored value.
+- **Changed rarely** — the copy stays valid longer.
+- **Tolerant of slight staleness** — a few seconds old is fine.
 
-A **cache stampede** (also called thundering herd) is a dangerous scenario that occurs when a popular cache entry expires and many concurrent requests all miss at the same time, flooding the database with identical queries. Mitigation strategies include probabilistic early expiration (recomputing the cache slightly before it expires, under low load), locking (having one request refill the cache while others wait), and staggered TTLs (adding random jitter to expiration times to avoid synchronized expiry across multiple keys).
+Profile pictures, product catalog entries, rendered HTML fragments, and expensive aggregates are natural fits. Account balances and inventory counts, where being wrong costs money, need more care.
 
-## Cache Placement Strategies
+<Callout type="tip">
+In practice this is often your biggest single win. One cache hit that skips a 50 ms database query can halve a page's load time — and putting a cache in front of a hot database can shed **90%+ of its query load**, letting the same hardware serve far more traffic.
+</Callout>
 
-Caches can exist at multiple layers of your system, each with different trade-offs in terms of latency, capacity, and scope.
+## Hits, misses, and the number you watch
 
-**Client-side caching** stores data on the user's device — in the browser's memory cache or local storage, or in a mobile app's local database. It provides the lowest possible latency (no network round-trip) and reduces server load. The limitation is that it is per-user — one user's cached data is not shared with another — and it cannot be easily invalidated server-side when the underlying data changes.
+A **cache hit** is when the data is already in the cache and served directly. A **cache miss** is when it isn't — the system falls back to the source, fetches the value, stores it, and returns it. The next request for that same value hits.
 
-**CDN caching** stores content (usually static assets, but increasingly API responses) at geographically distributed points of presence. A CDN cache hit costs a fraction of a millisecond compared to hitting your origin server potentially thousands of miles away. CDN caching is covered in depth in the CDN topic, but from a caching perspective it is simply a distributed cache that sits at the network edge.
+The metric that tells you if the cache is earning its keep is the **hit ratio** — the fraction of requests served from cache. A 95% hit ratio means only 5% of requests reach the database. A **low hit ratio** usually means one of three things: the working set is too big for the cache, the keys are too specific (so nothing gets reused), or data is being evicted too aggressively.
 
-**Server-side caching** with systems like Redis or Memcached is the most common form of application-level caching. Your application servers check the cache before querying the database. Cache keys are usually derived from the query or computation parameters (for example, the key `user:12345:profile` holds the profile data for user 12345). This form of caching is shared across all application servers, meaning a cache population by one server instance is immediately visible to all others — unlike in-process (in-memory) caching, which is local to each server and requires careful coordination.
+## Where you can put a cache
 
-**Database query caches** are maintained by the database engine itself. MySQL had a built-in query cache (deprecated in MySQL 8.0) that stored query results keyed by query text. Most modern databases instead rely on buffer pools that cache frequently accessed disk pages in RAM, which is a lower-level and more general form of caching.
+Caches live at several layers, each trading latency for reach.
 
-## Eviction Policies
+- **Client-side** — in the browser or a mobile app. Lowest possible latency (no network hop) but **per-user** and hard to invalidate server-side.
+- **CDN** — copies at edge locations near users. A CDN hit costs a fraction of a millisecond versus a trip to a distant origin. (Covered fully in the CDN topic.)
+- **Server-side** (Redis / Memcached) — the most common app-level cache. Your servers check it before the database, and because it's **shared**, a value cached by one server is instantly visible to all of them.
+- **Database-level** — buffer pools that keep hot disk pages in RAM. Lower-level and automatic; MySQL's old query cache was removed in 8.0.
 
-A cache has finite capacity. When it fills up, the eviction policy determines which cached entry is removed to make room for new data.
+## Eviction: what to drop when it's full
 
-**Least Recently Used (LRU)** evicts the entry that was last accessed the longest time ago. The intuition is that data accessed recently is more likely to be accessed again soon than data that has not been touched for a long time. LRU is the most common eviction policy and performs well for most general-purpose workloads. It requires maintaining a record of access order, which adds a small amount of overhead.
+A cache has finite room. When it fills, the **eviction policy** decides who gets kicked out.
 
-**Least Frequently Used (LFU)** evicts the entry with the lowest access count over a period. This is better than LRU for workloads where some data is accessed consistently over time (and should be retained) while other data has brief bursts of popularity. LFU is more complex to implement correctly and can suffer from cache pollution: data that was popular in the past but is no longer accessed takes a long time to age out.
+| Policy | Evicts | Best for | Watch out for |
+|---|---|---|---|
+| **LRU** (Least Recently Used) | Whatever hasn't been touched in the longest | Most general workloads — the safe default | Slight overhead tracking access order |
+| **LFU** (Least Frequently Used) | Whatever has the lowest access count | Steady favorites amid bursty traffic | Cache pollution — old hits linger too long |
+| **FIFO** (First In, First Out) | The oldest entry, ignoring usage | Simple, predictable needs | Ignores access patterns; rarely ideal |
+| **TTL** (Time To Live) | *Expires* entries after a set lifetime | Bounding staleness, not making room | It's a freshness tool, not a capacity tool |
 
-**First In, First Out (FIFO)** evicts the oldest entry regardless of how often or recently it was accessed. FIFO ignores access patterns and is rarely the right choice for application caches, but it is simple and predictable.
+**LRU** is the default for good reason: recently used data tends to be used again soon. **TTL** isn't really an eviction policy — it caps how *old* a value can get, and it's your main lever for freshness. Without a TTL, stale data can sit around indefinitely.
 
-**Time-to-Live (TTL)** is not an eviction policy in the strict sense but works alongside eviction policies. Each cache entry is given a maximum lifetime, after which it is considered expired and treated as a miss even if it is still in the cache. TTL is the primary mechanism for ensuring cache freshness — without TTL, stale data can accumulate indefinitely.
+## Write strategies: what happens when data changes
 
-## Write Strategies
+When a value is written or updated, the **write strategy** decides how the cache and database stay in step.
 
-The write strategy determines what happens to the cache when data is written (created or updated).
+| Strategy | How writes flow | Upside | Downside |
+|---|---|---|---|
+| **Write-through** | Write cache **and** database together, ack only when both succeed | Cache is always consistent with the DB | Every write pays full DB latency |
+| **Write-back** | Write cache now, flush to DB asynchronously later | Very fast writes | Data loss if the cache dies before flushing |
+| **Write-around** | Write straight to the DB, skip the cache | Cache never fills with write-only junk | First read after a write always misses |
 
-**Write-through** writes to the cache and the database simultaneously on every write operation. The write is not acknowledged to the caller until both the cache and the database have confirmed the write. This guarantees that the cache is always consistent with the database — there is no window of inconsistency. The cost is that every write incurs the full latency of the database write; the cache provides no benefit for write performance.
+**Write-through** trades speed for safety — no inconsistency window, but no write speedup either. **Write-back** is the opposite: blazing writes, but a crash before the flush loses data (fine for view counts, risky for orders). **Write-around** keeps the cache clean when data is written once and rarely read back, like log records.
 
-**Write-back** (also called write-behind) writes to the cache immediately and asynchronously propagates the change to the database later, in a background process. This makes writes very fast — the caller gets acknowledgement as soon as the cache write succeeds — but introduces a window of data loss risk. If the cache node fails before the asynchronous write reaches the database, those writes are lost. Write-back is appropriate when write performance is critical and you can tolerate some data loss, such as tracking view counts or analytics events.
+## Cache invalidation: the genuinely hard part
 
-**Write-around** bypasses the cache entirely on writes: data goes directly to the database, and the cache is only populated when data is subsequently read. This avoids polluting the cache with data that may only be written once and never read (such as log records or one-time upload metadata). The cost is that the first read after a write always misses the cache. Write-around works well when your write pattern produces data that is rarely read back through the cache.
+**Cache invalidation** — deciding when to remove or refresh stale entries — is famously one of the two hard problems in computer science (along with naming things, and off-by-one errors). The trouble is structural: a cache holds *copies*, and every time the original changes, every copy must be updated or thrown away.
 
-## Cache Invalidation
+- **TTL-based** — give every entry a lifetime; it auto-expires. Simplest approach. The whole game is picking the TTL: **too short** and your hit ratio tanks; **too long** and users see stale data.
+- **Active (cache busting)** — the write path explicitly deletes or overwrites the key when data changes (update a profile, drop `user:12345:profile`). Strong freshness, but the writer must know *every* key affected — which gets ugly when one row feeds many cached results.
+- **Event-driven** — the writer publishes a "this changed" event; invalidation consumers subscribe and purge the right keys. Decouples the write path from the cache, which is why it wins in microservice setups where several services cache the same data.
 
-Cache invalidation — deciding when and how to remove or update stale entries from the cache — is famously described as one of the two hard problems in computer science (along with naming things and off-by-one errors). The difficulty is that a cache by definition holds copies of data, and whenever the original data changes, all copies must either be updated or discarded.
+## Where this shows up in real systems
 
-**TTL-based invalidation** is the simplest approach: set a time-to-live on every cache entry. After TTL seconds, the entry expires automatically. The system always serves data that is at most TTL seconds old. The challenge is choosing the right TTL — too short and you get low hit ratios; too long and users see stale data. TTL is appropriate when some staleness is acceptable and the update frequency of the underlying data is predictable.
+- **Product catalogs / pricing** → read-heavy, changes a few times a day → cache with a modest TTL; the occasional stale price is acceptable.
+- **User sessions / auth tokens** → read on nearly every request → server-side cache (often Redis) shared across all app servers.
+- **View counts / likes / analytics** → write-heavy, loss-tolerant → write-back so the flood of increments doesn't cripple the database.
+- **Static assets / images / JS bundles** → rarely change, globally requested → CDN edge caching with long TTLs and content-hashed URLs.
+- **Leaderboards / rate limiters** → need atomic counters and sorted structures → Redis, using it as more than a plain cache.
 
-**Active invalidation** (also called cache busting) involves explicitly removing or updating cache entries when the underlying data changes. When a user updates their profile, the application explicitly deletes or overwrites the `user:12345:profile` cache key. Active invalidation provides stronger freshness guarantees but requires the write path to have knowledge of all the cache keys that must be invalidated — which becomes complex when a single database row is referenced by many cache keys (for example, a product price change might affect many cached search results).
+<Callout type="warning">
+The classic ways caching bites you:
 
-**Event-driven invalidation** uses a messaging system: when data changes, an event is published to a message queue or event bus, and cache invalidation consumers subscribe to relevant events and purge the appropriate cache keys. This decouples the write path from the cache invalidation logic and works well in microservice architectures where different services may cache the same underlying data.
+- **Cache stampede (thundering herd)** — a hot key expires and thousands of concurrent misses hammer the database at once. It can take the origin down.
+- **Staleness** — users see old data because a TTL is too long or an invalidation was missed.
+- **Invalidation gaps** — a value changes but its cache key never gets busted, so the stale copy lives on until (if ever) it expires.
 
-## Redis vs Memcached
+The trap underneath all three: treating the cache as the source of truth. It isn't — it's a **best-effort copy**, and your design has to assume it can be wrong.
+</Callout>
 
-Redis and Memcached are the two dominant open-source in-memory caching systems. Choosing between them depends on what features your use case requires.
+## Handling the pressure points
 
-**Redis** is a single-threaded in-memory data structure server. Beyond simple key-value storage, it supports strings, hashes, sorted sets, lists, sets, streams, geospatial indexes, and more. This rich data model allows Redis to serve as more than a cache: it is used for session storage, leaderboards, pub/sub messaging, rate limiting, and distributed locks. Redis supports optional persistence — it can snapshot data to disk (RDB) or log every write operation (AOF) — so a Redis instance can survive a restart without losing its contents. Redis also supports clustering for horizontal scaling and replication for high availability. If you need data structures beyond simple strings, persistence, or any of Redis's extended features, Redis is the choice.
+- **Stampede?** → add **random jitter** to TTLs so keys don't expire in lockstep, use a **lock (single-flight)** so one request refills while the rest wait, and consider **probabilistic early expiration** — refresh a hot key slightly before it dies, under low load.
+- **Staleness?** → shorten the TTL for data that matters, or switch to **active/event-driven invalidation** so updates propagate immediately instead of waiting out a clock.
+- **Invalidation gaps?** → keep your key scheme predictable and centralized, and prefer **event-driven purges** so the write path doesn't have to remember every downstream cache by hand.
 
-**Memcached** is a multi-threaded in-memory key-value store. It is simpler than Redis by design: it stores only flat string values (no data structures), has no persistence, and has minimal operational complexity. Its multi-threaded architecture means it can take better advantage of multiple CPU cores for plain cache workloads, and its simpler model makes it slightly faster for straightforward get/set operations at extreme throughput. If your use case is purely high-volume key-value caching of serialized objects and you do not need any of Redis's extended features, Memcached remains a strong choice.
+## Alternatives & related ideas
 
-In practice, Redis has become the default choice for most new systems due to its versatility. Memcached remains relevant primarily in organizations that already operate it at scale and have not found a reason to migrate.
+<Callout type="alternative">
+Caching isn't the only way to make reads cheap. **Read replicas** spread query load across copies of the database when the bottleneck is throughput, not per-query cost. **Materialized views** precompute expensive aggregates inside the database itself. A **CDN** is really just a cache pushed to the network edge for geographically spread users. And sometimes the honest answer is *don't cache* — if data must be exactly correct on every read (a bank balance, remaining inventory), reach for the source of truth and optimize *it* instead of layering a copy you'll have to keep honest.
+</Callout>
+
+## Summary
+
+A **cache** keeps a fast copy of expensive data so you stop redoing slow work, and it's often the biggest single performance win you can make. Reach for it when data is **read often, changed rarely, and okay to be slightly stale**, and watch the **hit ratio** to know it's working. Pick an eviction policy (**LRU** by default) and a write strategy that matches your tolerance for latency versus data loss. The hard part is always **invalidation** — bound staleness with TTLs, bust keys actively or via events when correctness matters, and defend the hot keys against **stampedes** with jitter and locking. Above all, never trust the cache as the source of truth; it's a copy that can be wrong.

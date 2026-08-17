@@ -1,9 +1,9 @@
 ---
 title: "Content Delivery Networks"
-description: "Serve static and dynamic content from servers geographically close to users to reduce latency, absorb traffic spikes, and add a layer of DDoS protection."
+description: "Cache copies of your content on servers near your users, so requests travel meters instead of continents — cutting latency, absorbing spikes, and shielding your origin."
 order: 3
 difficulty: Beginner
-readTime: "9 min read"
+readTime: "10 min read"
 diagram: CdnDiagram
 relatedTopics:
   - building-blocks/caching
@@ -13,62 +13,211 @@ takeaways:
   - "Pull CDNs cache content on first request; push CDNs require explicit pre-population"
   - "CDNs also provide DDoS protection, TLS termination, and WAF as valuable bonuses"
   - "Cache-Control headers control how long CDNs and browsers cache your content"
+quiz:
+  - question: "You ship a new build. The old JavaScript bundle was cached at 200 POPs with a 1-year TTL, and users are still getting the stale version. What's the clean fix going forward?"
+    options:
+      - "Manually purge every POP after each deploy"
+      - "Use content-addressed filenames (like app.a3f92c.js) so new content gets a new URL"
+      - "Set max-age=0 so nothing is ever cached"
+      - "Switch to a push CDN"
+    answer: 1
+    explanation: "Content-addressed filenames make each build a brand-new cache key, so browsers and CDNs fetch the new file automatically — no purge needed. Setting max-age=0 throws away the entire performance benefit of the CDN."
+  - question: "A user's personalized dashboard (account balance, name) is accidentally being served to other users. Which Cache-Control directive most likely fixes the leak?"
+    options:
+      - "public, max-age=3600"
+      - "no-cache"
+      - "private"
+      - "s-maxage=86400"
+    answer: 2
+    explanation: "`private` tells shared caches (CDNs) not to store the response — only the user's own browser may cache it. The `public` and `s-maxage` directives do the opposite: they let the CDN cache and share user-specific data."
+  - question: "A streaming service is releasing a blockbuster at 8pm and expects a massive simultaneous surge worldwide the instant it drops. Which CDN model best avoids a wave of slow first-requests?"
+    options:
+      - "A push CDN that pre-positions the movie across POPs before launch"
+      - "A pull CDN with a long TTL"
+      - "No CDN — serve directly from origin"
+      - "A pull CDN with no-cache set"
+    answer: 0
+    explanation: "With a pull CDN, the first request at each POP is a cache miss that hits the origin — thousands of near-simultaneous misses at launch would hammer the origin. A push CDN pre-loads the content so every request is a hit from the first second."
+  - question: "Your product-listing endpoint /api/products?category=shoes gets a great cache hit rate, but /api/products?category=shoes&utm_source=email always misses. Why?"
+    options:
+      - "The utm_source parameter makes the response uncacheable"
+      - "Query parameters are never cached by CDNs"
+      - "The full URL including query string is the cache key, so the tracking parameter creates a distinct key"
+      - "The origin is sending no-store for tracked links"
+    answer: 2
+    explanation: "CDN cache keys default to the full URL, query string included. A tracking parameter that doesn't change the response still forges a new cache key and a fresh miss. The fix is to configure the CDN to ignore parameters like utm_source in the cache key."
 ---
 
-## What is a CDN
+<Callout type="analogy">
+Imagine a popular book that everyone in the world wants to read, but there's
+only **one copy** in a library in London. A reader in Sydney has to wait for it
+to be shipped halfway around the planet.
 
-A Content Delivery Network (CDN) is a geographically distributed network of servers — called Points of Presence (POPs) or edge nodes — that cache copies of your content closer to your users. Instead of every request traveling all the way to your origin server (which might be in a single data center in Virginia or Frankfurt), users are served from a POP that may be in the same city or country as they are.
+A **CDN** is like printing copies of that book and stocking them in a local
+library in *every* major city. Now the Sydney reader walks down the street
+instead of waiting on international post. The content didn't get faster to
+produce — you just moved it *closer*.
+</Callout>
 
-The motivation is physics: light travels through fiber optic cable at roughly 200,000 kilometers per second. A request from a user in Sydney to a server in London covers approximately 16,000 kilometers of cable (accounting for routing), which means the round-trip adds at least 160 milliseconds of latency before any server processing happens. A CDN POP in Sydney or Singapore serves that same user with 5–10 milliseconds of round-trip latency. For most web assets — images, JavaScript bundles, stylesheets, fonts, video — this latency difference is the dominant factor in perceived page load speed.
+## What a CDN is
 
-CDNs operate at massive scale. Major CDNs like Cloudflare and Akamai have hundreds of POPs distributed across dozens of countries. Collectively they handle a substantial fraction of all global internet traffic. This scale also means CDNs can absorb traffic volumes that would overwhelm most origin servers, making them a natural DDoS mitigation layer in addition to their latency benefits.
+A **Content Delivery Network (CDN)** is a network of servers spread across the
+globe — called **Points of Presence (POPs)** or **edge nodes** — that keep
+cached copies of your content near your users. Instead of every request flying
+all the way to your **origin server** (maybe a single data center in Virginia),
+users get served from a POP that might be in their own city.
 
-## How CDNs Work
+The reason is pure physics. Light travels through fiber at about 200,000 km/s,
+so a request from Sydney to London — roughly 16,000 km of cable — adds at least
+**160 ms** of round-trip latency *before any server does work*. A POP in Sydney
+answers the same user in **5–10 ms**. For images, scripts, fonts, and video,
+that gap is the dominant factor in how fast a page *feels*.
 
-When a CDN receives a request from a user, it checks whether it has a valid cached copy of the requested resource. If it does (a cache hit), it serves the response directly from its local cache with no connection to your origin. If it does not (a cache miss), it forwards the request to your origin server, receives the response, caches the response locally, and returns it to the user. All subsequent requests for the same resource from users near the same POP will be cache hits.
+<Callout type="tip">
+Major CDNs like **Cloudflare** and **Akamai** run *hundreds* of POPs across
+dozens of countries and collectively carry a large fraction of all internet
+traffic. That sheer scale is also what lets them soak up attacks — Cloudflare
+has absorbed DDoS floods exceeding **1 terabit per second**.
+</Callout>
 
-The CDN uses the Cache-Control and Expires HTTP response headers sent by your origin to decide how long to cache the response. A JavaScript bundle with a content-addressed filename (like `app.a3f92c.js`) can be cached indefinitely — if the content changes, the filename changes. An HTML page that changes daily might be cached for one hour. An API response for a user's account details probably should not be cached at all.
+## How a CDN works: hit vs miss
 
-CDN cache keys are typically derived from the full URL, including query parameters. `https://example.com/api/products?category=shoes` and `https://example.com/api/products?category=hats` are distinct cache keys. Some CDNs allow you to configure custom cache key rules — for example, ignoring certain query parameters that have no effect on the response, which increases hit rates.
+Every request to a CDN comes down to one question: *do I already have a valid
+copy of this?*
+
+- **Cache hit** — the POP has a fresh copy. It serves the response instantly
+  from local memory or disk, never touching your origin.
+- **Cache miss** — the POP has nothing (or a stale copy). It forwards the
+  request to your origin, caches whatever comes back, and returns it. Every
+  later request near that POP is now a hit.
+
+| Situation | What happens | Latency | Origin load |
+|---|---|---|---|
+| **Cache hit** | Served from the edge | Very low (5–10 ms) | None |
+| **Cache miss** | Fetched from origin, then cached | High (full round-trip) | One hit |
+| **Stale but revalidated** | 304 from origin, cached copy served | Medium | Light |
+
+How long a POP holds a copy is decided by the **Cache-Control** and **Expires**
+headers your origin sends. A content-addressed bundle (`app.a3f92c.js`) can be
+cached forever; a daily HTML page maybe an hour; a user's private account data,
+not at all.
+
+<Callout type="tip">
+Cache keys default to the **full URL, query string included**.
+`/products?category=shoes` and `/products?category=hats` are separate entries.
+That's also why a stray `?utm_source=email` tanks your hit rate — it forges a
+brand-new key. Most CDNs let you strip such parameters from the key.
+</Callout>
 
 ## Push vs Pull CDN
 
-CDNs can be configured to populate their caches in two fundamentally different ways, with different operational implications.
+There are two ways to get content into the edge caches, and they trade
+simplicity against control.
 
-A **pull CDN** (the more common model) operates lazily. When a user requests a resource that is not yet cached at the POP nearest to them, the CDN pulls the content from your origin server on demand, caches it, and returns it. The first request for a given resource at a given POP incurs the origin round-trip; all subsequent requests are cache hits. The primary advantage of the pull model is simplicity: you do not need to do anything special when you deploy new content. The CDN automatically picks up new content as users request it, and old cached content expires according to TTL settings. Pull CDNs are the right choice for most websites and APIs.
+| | **Pull CDN** | **Push CDN** |
+|---|---|---|
+| Who populates it | The CDN, lazily on first request | You, explicitly, ahead of time |
+| First request | Cache miss → hits origin | Already cached → hit |
+| Deploy work | None — new content picked up automatically | You push assets in your pipeline |
+| Invalidation | Content expires by TTL | You manage manually |
+| Best for | Most websites and APIs | Predictable, heavy launches (movie premieres) |
 
-A **push CDN** requires you to explicitly upload content to the CDN's storage. Your deployment pipeline pushes assets to the CDN's servers, and the CDN serves them from there. You explicitly control what is cached, where it is distributed, and when it is updated. Push CDNs are appropriate for content you know will be accessed heavily and predictably — a video streaming platform that pre-positions a new movie release across all POPs before a scheduled premiere, for example. The operational cost is higher: you must build the push step into your deployment pipeline and explicitly manage cache invalidation when content changes.
+A **pull CDN** is the common, lazy model: the first request for a resource at a
+POP misses and fetches from origin; everything after is a hit. You do nothing
+special on deploy — the CDN just picks up new content as people ask for it.
 
-## Cache-Control Headers
+A **push CDN** makes you upload content ahead of time. More operational work,
+but no cold first-request penalty — ideal when you *know* a surge is coming, like
+a streaming service pre-positioning a movie across every POP before an 8pm
+premiere.
 
-The CDN's caching behavior is primarily governed by the HTTP Cache-Control response header. This header is sent by your origin server and instructs both CDNs and browsers how to cache the response.
+## Cache-Control headers
 
-`max-age=N` tells clients (browsers and CDNs alike) to cache the response for N seconds. `s-maxage=N` does the same but applies only to shared caches (CDNs) — it overrides `max-age` for CDN caching while allowing a different TTL for the browser cache. This lets you say "CDN, cache this for one day; browser, cache this for ten minutes" with a single header.
+The `Cache-Control` response header (sent by your origin) is how you steer
+caching. The directives that matter most:
 
-`no-cache` is commonly misunderstood: it does not mean "do not cache." It means "cache this, but always revalidate with the origin before serving it." The CDN stores the response but sends a conditional request (with an `If-None-Match` or `If-Modified-Since` header) to the origin on each subsequent request. If the content has not changed, the origin returns a 304 Not Modified (with no body), and the CDN serves its cached copy. `no-store` truly prevents caching.
+- **`max-age=N`** — cache for N seconds, for browsers *and* CDNs.
+- **`s-maxage=N`** — same, but for **shared caches (CDNs) only**; overrides
+  `max-age` at the edge. Lets you say "CDN, hold this a day; browser, ten minutes."
+- **`no-cache`** — *not* "don't cache." It means "cache it, but **revalidate**
+  with the origin before each serve" (via `If-None-Match` / `If-Modified-Since`;
+  a 304 means the cached copy is still good).
+- **`no-store`** — truly never cache.
+- **`public`** — any cache may store it, CDNs included.
+- **`private`** — only the **browser** may cache it, never a shared CDN — the
+  right setting for user-specific responses.
 
-`public` marks a response as cacheable by any cache (including CDNs). `private` marks a response as cacheable only by the browser, not by CDNs — important for responses that contain user-specific data, such as account details or personalized recommendations.
+<Callout type="tip">
+The frontend gold standard: ship static assets with content-addressed filenames
+and `Cache-Control: public, max-age=31536000, immutable`. Browser and CDN cache
+them for a year; the *only* way to update is to change the filename — which Vite
+and Webpack do automatically when content changes.
+</Callout>
 
-Deploying static assets with content-addressed filenames and `Cache-Control: public, max-age=31536000, immutable` (one year, immutable) is the gold standard for frontend performance: the browser and CDN cache them essentially forever, and the only way to serve updated content is to change the filename, which is what modern build tools (Webpack, Vite) do automatically when content changes.
+## Where this shows up
 
-## CDN Benefits Beyond Speed
+- **Static assets (images, JS bundles, fonts, video)** → the ideal CDN case:
+  stable content, large payloads (origin round-trip is expensive), and high
+  request frequency, so hit rates soar.
+- **Video streaming (Netflix, YouTube)** → push-heavy; popular titles are
+  pre-positioned at the edge so millions stream without touching origin.
+- **Global SaaS dashboards** → cache the static shell aggressively, mark
+  personalized API responses `private` so per-user data never gets shared.
+- **News / high-traffic sites during spikes** → the CDN absorbs a flash crowd
+  (a story going viral) that would otherwise flatten the origin.
+- **Any HTTPS site** → **TLS termination** at the edge cuts the 1–2 handshake
+  round-trips, since the handshake happens at a nearby POP, not across the world.
 
-Latency reduction is the headline benefit of CDNs, but modern CDNs offer a range of additional capabilities that are valuable independent of caching.
+## Pressure points
 
-**DDoS protection** is perhaps the most important secondary benefit. Because CDN POPs collectively handle enormous traffic volumes, they can absorb volumetric DDoS attacks that would instantly overwhelm a typical origin server. Cloudflare, for example, has mitigated attacks exceeding 1 terabit per second. The CDN identifies and drops attack traffic at the network edge, protecting your origin from even seeing the traffic.
+<Callout type="warning">
+The classic CDN trap is **stale content**. You cache aggressively with a long
+TTL, then push a fix — and users keep seeing the old version until the TTL
+expires, because the CDN still thinks its copy is valid.
 
-**TLS termination** at the edge means that HTTPS handshakes happen at the nearest POP, not at your origin. The TLS handshake adds 1–2 round-trips of latency; by terminating it at a POP close to the user rather than at an origin on the other side of the world, CDNs significantly reduce the cost of establishing secure connections. Traffic between the CDN POP and your origin can use a separate, persistent TLS session that is not on the critical path for each user request.
+**Cache invalidation is hard.** Manual purges are slow to propagate across
+hundreds of POPs and easy to forget. And beware caching too *little*: mark a
+page `private` or `no-store` by mistake and every request stampedes your origin,
+erasing the whole point of the CDN.
+</Callout>
 
-**Web Application Firewall (WAF)** capabilities built into CDNs like Cloudflare and AWS CloudFront allow you to inspect and filter incoming requests for malicious patterns — SQL injection attempts, common exploit signatures, bots — at the network edge before those requests ever reach your application code.
+## Handling the pressure points
 
-**Geographic blocking and traffic management** allow you to restrict content to specific countries or regions, route traffic to different origins based on geography, or implement A/B tests at the CDN layer.
+- **Version your URLs.** Content-addressed filenames (`app.a3f92c.js`) make every
+  deploy a new cache key, so updates are instant and no purge is needed.
+- **Split TTLs by volatility.** `immutable` for hashed assets; short TTLs for HTML;
+  `no-store` only for truly private data. Don't paint everything with one brush.
+- **Use `s-maxage` + revalidation.** Long edge TTL for reach, `no-cache`
+  revalidation where freshness matters, so a 304 keeps it cheap.
+- **Tune the cache key.** Strip tracking params (`utm_*`) and irrelevant query
+  strings so equivalent requests share one entry and hit rates climb.
+- **Purge as a backstop, not a habit.** Keep the purge API for emergencies, but
+  design so you rarely need it.
 
-## Popular CDNs
+## Alternatives & related ideas
 
-**Cloudflare** is the most widely used CDN by site count. Beyond caching, it offers DDoS protection, WAF, DNS, SSL certificates, Cloudflare Workers (serverless compute at the edge), and a global network of hundreds of POPs. Its free tier makes it accessible to small projects, while its enterprise tier handles Fortune 500 workloads.
+<Callout type="alternative">
+A CDN caches at the *network edge*, but it's one layer in a bigger caching
+stack. **Browser caching** keeps assets on the user's own machine (zero network
+at all). **Reverse-proxy / origin caches** (Varnish, nginx) sit in front of your
+app for hits that never even reach application code. **Application caches**
+(Redis, Memcached) hold computed results and query output.
 
-**Amazon CloudFront** integrates natively with the AWS ecosystem — S3, ALB, Lambda@Edge, AWS Shield — making it the natural choice for applications already running on AWS. CloudFront's edge locations are deeply integrated with AWS's backbone network.
+For **DDoS and security** specifically, CDNs bundle a **WAF** and edge filtering,
+but dedicated scrubbing services exist too. And for truly dynamic, personalized
+responses that can't be cached, **edge compute** (Cloudflare Workers,
+Lambda@Edge) runs your logic *at* the POP instead of just caching bytes.
+</Callout>
 
-**Akamai** is the oldest and one of the largest CDNs, with a particularly strong presence in enterprise and media streaming. It is the CDN of choice for organizations with the most demanding performance and compliance requirements.
+## Summary
 
-Modern CDNs are increasingly capable of caching not just static assets but also API responses and even dynamically generated HTML (with appropriate cache keys and TTLs). Static assets like images, JavaScript bundles, fonts, and videos remain the ideal CDN use case — their content is stable, they are large (so avoiding the origin round-trip has high value), and they are requested frequently enough to achieve high hit rates.
+A CDN moves copies of your content to **POPs near your users**, turning
+continent-spanning round-trips into local ones — the single biggest lever on
+perceived load speed. Requests are **hits** (served instantly at the edge) or
+**misses** (fetched from origin and then cached), and you steer that behavior
+with **Cache-Control** headers: `max-age`/`s-maxage` for TTLs, `private` for
+user data, `immutable` for hashed assets. Choose a **pull CDN** for almost
+everything and a **push CDN** when you must pre-warm for a known surge. The hard
+part is always **cache invalidation** — solve it with versioned URLs rather than
+manual purges — and remember the CDN gives you DDoS protection, TLS termination,
+and a WAF almost for free.
