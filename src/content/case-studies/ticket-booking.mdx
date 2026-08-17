@@ -1,9 +1,9 @@
 ---
 title: "Ticket Booking System"
-description: "Design a Ticketmaster-style ticket booking platform: seat reservation with TTL holds, Redis SETNX race-condition prevention, idempotent payment flows, and a virtual waiting room for flash sales."
+description: "Design a Ticketmaster-style booking platform: TTL seat holds, atomic Redis SET NX EX to kill double-booking, idempotent payments, and a virtual waiting room that tames flash-sale stampedes."
 order: 10
 difficulty: Intermediate
-readTime: "15 min read"
+readTime: "17 min read"
 diagram: TicketBookingDiagram
 isCaseStudy: true
 problemStatement: "Design a ticket booking system like Ticketmaster. Users should be able to browse events, select seats, and purchase tickets — with no double-booking."
@@ -19,11 +19,50 @@ takeaways:
   - "A virtual waiting room serializes demand during flash sales without overloading the system"
   - "Idempotent payment processing is non-negotiable — network failures happen"
 relatedTopics: []
+quiz:
+  - question: "Two users click the same available seat within the same millisecond during a Taylor Swift on-sale. Which mechanism guarantees only one of them gets the hold — without collapsing throughput?"
+    options:
+      - "A single atomic Redis SET seat_hold:{id} NX EX 600 — exactly one call returns OK, the rest get nil instantly"
+      - "SELECT ... FOR UPDATE row locks in Postgres, letting every booking transaction serialize on the row"
+      - "Read the seat status, and if it's 'available', issue an UPDATE to mark it held"
+      - "A background job that reconciles duplicate holds every minute"
+    answer: 0
+    explanation: "SET NX EX is a single atomic command — only one caller sets the key, everyone else gets an instant nil, no blocking. FOR UPDATE is correct but serializes all 100k attempts on one row and collapses throughput. Read-then-update is the exact race that causes double-booking, and after-the-fact reconciliation means the bug already happened."
+  - question: "Your code runs SETNX to grab the seat, then a separate EXPIRE to set the 10-minute TTL. The process crashes between the two commands. What's the consequence?"
+    options:
+      - "The seat is released immediately since the key was never committed"
+      - "Nothing — Redis rolls back partial operations automatically"
+      - "The key exists with no TTL, so the seat is locked forever and can never be sold"
+      - "The next user's SETNX silently overwrites the orphaned key"
+    answer: 2
+    explanation: "Two separate commands aren't atomic — a crash in between leaves the hold key with no expiry, deadlocking that seat permanently. This is exactly why the single SET NX EX form exists: the lock and its TTL are set together in one indivisible step."
+  - question: "A payment request times out after 5 seconds — you don't know if the card was charged. Your retry logic fires. What prevents a double charge?"
+    options:
+      - "Retrying only on HTTP 500, never on timeouts"
+      - "Reusing the same idempotency key so the gateway returns the original result instead of charging again"
+      - "Waiting 30 seconds before retrying so the first charge settles"
+      - "Checking the user's bank statement before retrying"
+    answer: 1
+    explanation: "An idempotency key lets the gateway (Stripe, Braintree) recognize the retry as the same operation and return the first attempt's outcome — no second charge. Timing tricks and status-code filtering don't help: a timeout means the charge may have already succeeded, and only deduplication by key makes the retry safe."
+  - question: "100,000 fans hit 'buy' the instant a championship final goes on sale. Redis SETNX already guarantees correctness. Why still add a virtual waiting room?"
+    options:
+      - "Because SETNX can double-book under extreme load"
+      - "To make the seat map load faster for browsers"
+      - "To replace the relational database as the source of truth"
+      - "To flow-control demand — admitting ~500 users/sec instead of letting 100k concurrent connections crush the infrastructure"
+    answer: 3
+    explanation: "The waiting room is pure flow control: it serializes the stampede so the booking service handles an orderly trickle rather than 100k simultaneous connections and DB writes. Correctness still comes from SETNX and the seat inventory — the queue protects capacity, not correctness."
 ---
+
+<Callout type="analogy">
+Picture a concert box office with a single physical wall of seat tickets. When you point at seat 42 and say "I'll take it," the clerk **pulls that ticket off the wall and holds it behind the counter** while you dig out your wallet. Nobody else can grab it — but if you wander off, after a few minutes the clerk pins it back on the wall for the next person.
+
+A ticket booking system is that clerk, running for **100,000 seats and 100,000 simultaneous customers at once**. The whole design is about one thing: making sure two people can never walk away with the same seat 42 — even when they both reach for it in the same millisecond.
+</Callout>
 
 ## Requirements
 
-Ticket booking systems have one hard constraint that dominates the design: no seat can ever be sold to two people simultaneously. Everything else — browsing, seat maps, payment — is standard e-commerce. The double-booking problem is what makes this system interesting.
+Ticket booking systems have one hard constraint that dominates the design: **no seat can ever be sold to two people simultaneously**. Everything else — browsing, seat maps, payment — is standard e-commerce. The **double-booking problem** is what makes this system interesting.
 
 **Functional requirements:**
 - Users can browse events and view a real-time seat availability map.
@@ -60,6 +99,10 @@ The seat reservation flow has three distinct phases: **browse**, **hold**, and *
 **Hold**: the user clicks a seat. The system atomically marks it as "held" by this user for 10 minutes. If the hold succeeds, the user proceeds to payment. If the hold fails (someone else held the seat in the milliseconds between the user seeing "available" and clicking), the user is shown an error and prompted to choose another seat.
 
 **Confirm**: within the 10-minute window, the user submits payment. On successful payment, the seat status changes from "held" to "sold". On payment failure, the seat remains held (so the user can retry) until the TTL expires.
+
+<Callout type="tip">
+**In practice — pick your hold TTL carefully.** Real platforms use a **7–15 minute** seat-hold window. Too short and users rage-quit mid-checkout; too long and a wave of abandoned holds freezes inventory that could have sold. Ticketmaster typically holds seats for ~10 minutes and shows a visible countdown timer — the timer isn't decoration, it's back-pressure that nudges users to finish fast and return unsold seats quickly.
+</Callout>
 
 **Seat status table**:
 
@@ -111,6 +154,15 @@ COMMIT;
 
 The `FOR UPDATE` lock means only one transaction can read and modify this row at a time. Other transactions block until the lock is released. This guarantees correctness but creates a serialization bottleneck: at 100,000 concurrent booking attempts, every transaction blocks every other, and throughput collapses.
 
+<Callout type="warning">
+**The bottleneck: concurrency on a single hot seat.** For a blockbuster on-sale, tens of thousands of requests slam the *same few* front-row seats in the same instant — a **thundering herd**. Two traps to avoid:
+
+- **Read-then-write (check status, then UPDATE)** is the classic double-booking bug — two requests both read "available" before either writes. Never split the check and the claim into two steps.
+- **`SELECT ... FOR UPDATE`** *is* correct, but it forces every one of those 100,000 requests to queue on one row lock, and your database melts.
+
+The fix is an **atomic claim**: `SET seat_hold:{id} {user} NX EX 600` in Redis. Exactly one caller wins, all others get an instant `nil` — no locks, no blocking, no queue. Pair it with a **virtual waiting room** so the herd is metered *before* it reaches Redis at all.
+</Callout>
+
 **Atomic Redis SET NX EX (recommended)**: use Redis as a distributed lock store. The modern `SET` command with `NX` (set-if-not-exists) and `EX` (expiry in seconds) flags performs both operations in a single atomic step:
 
 ```
@@ -125,11 +177,19 @@ Redis processes commands in a single thread, so the `SET NX EX` operation is inh
 
 The database is still the source of truth: after a successful `SETNX`, write the hold to the `seats` table as the durable record. Redis is the concurrency guard; the database is the persistent state.
 
+<Callout type="tip">
+**In practice — why Redis wins here.** A single Redis node handles roughly **100,000+ SET ops/sec** in well under a millisecond each, because it's single-threaded and in-memory — so `SET NX EX` is inherently atomic with no lock manager. Under a 100k-request stampede, exactly one call returns `OK` and the other ~99,999 get `nil` *immediately* instead of blocking in a database lock queue. The seat map itself is read-heavy (thousands of viewers), so cache it in Redis or a CDN with a **2–5 second refresh** — nobody needs millisecond-fresh "available" dots while browsing.
+</Callout>
+
 ## Payment Flow
 
 Payment is the step most likely to fail with ambiguous outcomes. A network timeout after the payment gateway receives the charge request but before it returns a response leaves the system not knowing whether the charge succeeded. If it retried, the user could be double-charged. This is why **idempotency** is non-negotiable.
 
 **Idempotency key pattern**: before initiating payment, generate a unique idempotency key tied to this booking attempt (e.g., `pay_{booking_id}_{attempt_number}`). Include this key in the payment gateway API request. If the same key is submitted twice, the gateway returns the result of the first attempt rather than processing a second charge. Most payment gateways (Stripe, Braintree) support idempotency keys natively.
+
+<Callout type="tip">
+**In practice — the key must be stable across retries.** Generate the idempotency key **once per booking attempt and reuse it on every retry** — if you generate a fresh key on each try, the gateway treats each as a brand-new charge and the whole safety net disappears. Stripe retains an idempotency result for **24 hours**, which comfortably covers any realistic timeout-and-retry loop within your 10-minute hold window.
+</Callout>
 
 **Payment flow**:
 1. User submits card details. The browser tokenizes the card via the payment provider's JavaScript SDK (card number never touches your servers).
@@ -214,3 +274,7 @@ The waiting room serializes demand: instead of 100,000 concurrent users hammerin
 **Kafka-based waiting room**: when a user arrives at the waiting room, their `user_id` and arrival timestamp are written to a Kafka topic (`waiting-room:{event_id}`). A Waiting Room Service reads from this topic and maintains the ordered queue. It periodically signals the next batch of users that they can proceed, publishing their `user_id` to a `proceed` Kafka topic. The user's browser subscribes (via WebSocket or long-poll) and redirects when it receives the proceed signal.
 
 **Optimistic seat holding**: for very high demand, you can further reduce contention by showing users a "seat selection" page before formally holding the seat in Redis. Users browse the interactive seat map, then click "Hold Seat". The hold only occurs on click — not on view — which means most browsing users do not generate Redis write contention. This mirrors Ticketmaster's actual UX.
+
+## Summary
+
+A ticket booking system is fundamentally a **correctness problem wrapped in an e-commerce app**: no seat may ever be sold twice, even when 100,000 fans reach for the same seat in the same millisecond. The seat lifecycle is **browse → hold → confirm**, where the hold is an **atomic `SET NX EX` in Redis** with a ~10-minute TTL — exactly one caller wins, everyone else gets an instant `nil`, and abandoned holds auto-release. Payment must be **idempotent** via a stable key so a timeout-and-retry never double-charges, while the relational database stays the durable source of truth. For flash sales, a **virtual waiting room** meters the thundering herd down to a steady trickle (~500 users/sec) so the infrastructure never sees the full stampede. Correctness comes from atomic holds and seat inventory; the waiting room protects capacity, not correctness.

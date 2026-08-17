@@ -1,9 +1,9 @@
 ---
 title: "TinyURL — URL Shortener"
-description: "Walk through designing a high-scale URL shortening service: from Base62 encoding and database schema to Redis caching and redirect strategies."
+description: "Design a high-scale URL shortener step by step: a coat-check ticket for links, from Base62 encoding and schema to Redis caching and the 301-vs-302 redirect decision."
 order: 1
 difficulty: Intermediate
-readTime: "15 min read"
+readTime: "16 min read"
 diagram: TinyUrlDiagram
 isCaseStudy: true
 problemStatement: "Design a URL shortening service like TinyURL. It should accept a long URL and return a short URL. Users should be able to access the original URL via the short URL."
@@ -19,7 +19,52 @@ takeaways:
   - "Use 302 redirects to preserve analytics data; 301 caches at browser level"
   - "A Bloom filter at the cache layer prevents DB lookups for non-existent codes"
 relatedTopics: []
+quiz:
+  - question: "Your interviewer asks why you chose Base62 encoding of an auto-increment ID over generating random 7-character codes. What's the strongest answer?"
+    options:
+      - "Base62 codes are shorter than random codes of the same length"
+      - "It's collision-free by construction, so you never need uniqueness checks or retry loops"
+      - "Random codes can't use uppercase letters"
+      - "Base62 codes are impossible for attackers to guess"
+    answer: 1
+    explanation: "Because each ID is already unique, its Base62 form is unique too — no collision checks, no retries, no thundering herd. Random generation gets you the same length but forces a uniqueness check on every insert; it does NOT hide codes from attackers either, since sequential IDs are actually more guessable."
+  - question: "You have 100M active URLs but only ~8 GB of Redis. Which caching strategy makes this work, and why?"
+    options:
+      - "Pre-load all 100M URLs into Redis at startup"
+      - "Skip the cache — 8 GB isn't enough to matter"
+      - "Cache-aside the hot ~20% of codes, since ~20% of links drive ~80% of clicks"
+      - "Cache only the newest URLs, since old links are never clicked"
+    answer: 2
+    explanation: "Clicks follow a Pareto distribution — a small fraction of links get most of the traffic. Cache-aside naturally fills Redis with exactly those hot codes on first read, so you get most of the hit-rate benefit for a fraction of the memory. Newest-first fails because a months-old viral link may still be red-hot."
+  - question: "A user types tinyurl.com/zzzzzzz, a code that was never created. Repeated at scale, these bogus lookups hammer your database on every cache miss. What's the cleanest defense?"
+    options:
+      - "Put a Bloom filter in front of the cache to short-circuit codes that definitely don't exist"
+      - "Add more database read replicas"
+      - "Return a 301 so browsers cache the 404"
+      - "Rate-limit every user to one redirect per second"
+    answer: 0
+    explanation: "A Bloom filter never gives a false negative, so a 'does not exist' answer is trustworthy — you skip both cache and DB entirely. Replicas just spread the wasted work around, and a 301 can't cache a response for a code that returns an error."
+  - question: "Your PM wants click analytics — geography, referrers, timing — for every short link. Which redirect status code should the redirect service return, and what's the trade-off?"
+    options:
+      - "301, because permanent redirects are faster for users"
+      - "301, and reconstruct analytics from server access logs later"
+      - "Either works; the status code has no effect on analytics"
+      - "302, accepting that every click now costs a round trip to your servers"
+    answer: 3
+    explanation: "A 301 lets the browser cache the redirect and stop calling you, which silently destroys future analytics. 302 forces every click back through your infrastructure so you can log it — the price is a round trip per click, which you absorb with application-layer (Redis) caching, not browser caching."
 ---
+
+<Callout type="analogy">
+A URL shortener is a **coat-check counter for links**. You hand over a big,
+unwieldy coat (a 200-character URL), and you get back a tiny numbered ticket
+(`tinyurl.com/abc1234`). The ticket is meaningless on its own — but bring it
+back and the attendant instantly fetches your exact coat.
+
+The whole system is really just two jobs: **file a coat and hand out a ticket**
+(write), and **take a ticket and return the coat** (read). The catch is that
+people redeem tickets far more often than they check in coats — so the counter
+is built for lightning-fast lookups above all else.
+</Callout>
 
 ## Requirements Clarification
 
@@ -28,16 +73,16 @@ Before diving into databases and algorithms, clarify exactly what you are buildi
 **Functional requirements** define what the system must do:
 - Accept a long URL and return a short, unique code (e.g., `tinyurl.com/abc1234`).
 - Redirect a short URL to its original long URL quickly and reliably.
-- Short URLs should optionally expire after a user-specified time.
-- Users may optionally specify a custom alias instead of a generated code.
+- Short URLs should optionally **expire** after a user-specified time.
+- Users may optionally specify a **custom alias** instead of a generated code.
 
 **Non-functional requirements** define how the system must behave under load:
-- **High availability**: a downed URL shortener breaks links across the internet. Target 99.99% uptime.
-- **Low read latency**: redirects should complete in under 10ms at the application layer.
+- **High availability**: a downed URL shortener breaks links across the internet. Target **99.99% uptime**.
+- **Low read latency**: redirects should complete in **under 10ms** at the application layer.
 - **Durability**: once a short URL is created, it must never be silently lost.
-- **Scale**: 100 million new URLs shortened per day.
+- **Scale**: **100 million** new URLs shortened per day.
 
-One important scoping decision is whether analytics matter. If you track every click (user agent, location, timestamp), you cannot let browsers cache the redirect indefinitely — an important factor in the redirect strategy.
+One important scoping decision is whether **analytics** matter. If you track every click (user agent, location, timestamp), you cannot let browsers cache the redirect indefinitely — an important factor in the redirect strategy you'll pick later.
 
 ## Scale Estimation
 
@@ -47,13 +92,13 @@ Scale estimation anchors your design choices. With 100 million URLs created per 
 Write QPS = 100,000,000 / 86,400 seconds ≈ 1,160 writes/sec
 ```
 
-URL shorteners are read-heavy. Assume every link is clicked roughly 10 times on average:
+URL shorteners are **read-heavy**. Assume every link is clicked roughly 10 times on average:
 
 ```
 Read QPS = 1,160 × 10 ≈ 11,600 reads/sec
 ```
 
-That is a 10:1 read-to-write ratio. Your caching strategy should be designed around this asymmetry.
+That is a **10:1 read-to-write ratio**. Your caching strategy should be designed around this asymmetry.
 
 For storage, assume each URL record is about 500 bytes (long URL + metadata). Over a 5-year retention window:
 
@@ -61,7 +106,15 @@ For storage, assume each URL record is about 500 bytes (long URL + metadata). Ov
 Storage = 100M URLs/day × 365 days × 5 years × 500 bytes ≈ 91 TB
 ```
 
-91 TB is manageable with modern object stores and replicated SQL, but you should mention sharding or archival strategies for cold data. The storage calculation also tells you that read throughput, not write throughput, is your bottleneck — reinforcing the need for a caching layer.
+<Callout type="tip">
+**In practice:** 1,160 writes/sec is tiny — a single well-tuned database can
+absorb that without breaking a sweat. The real number to fixate on is the
+**11,600 reads/sec**. That asymmetry is the whole story: your job isn't to
+scale writes, it's to make reads absurdly cheap. Everything downstream (Redis,
+the redirect path, the 301/302 call) flows from that one ratio.
+</Callout>
+
+91 TB is manageable with modern object stores and replicated SQL, but you should mention **sharding or archival** strategies for cold data. The storage math confirms it: read throughput, not write throughput, is your bottleneck — reinforcing the need for a caching layer.
 
 ## High-Level Design
 
@@ -72,7 +125,7 @@ The core data flow is simple:
 3. A user visits `GET /{short_code}` (e.g., `tinyurl.com/abc1234`).
 4. The **Redirect Service** looks up the short code in the cache, falls back to the database, and returns an HTTP redirect to the long URL.
 
-These two flows — shortening and redirecting — can be served by the same application tier but benefit from separation because they have different load profiles. Write traffic is modest; read traffic is an order of magnitude higher.
+These two flows — **shortening** and **redirecting** — can be served by the same application tier but benefit from separation because they have very different load profiles. Write traffic is modest; read traffic is an order of magnitude higher, so you scale the redirect tier independently.
 
 The API contracts are:
 
@@ -101,50 +154,91 @@ CREATE TABLE urls (
 );
 ```
 
-A relational database (MySQL or PostgreSQL) works well at this scale. The table is write-once and read-many: once a short code is created, the row is never updated except for optional click counter increments (which you can batch asynchronously to avoid hot-row contention).
+A relational database (MySQL or PostgreSQL) works well at this scale. The table is **write-once, read-many**: once a short code is created, the row is never updated except for optional click-counter increments.
 
-The `short_code` column carries a unique index, which is the read path. The `expires_at` column allows a background job to soft-delete or archive expired mappings. If you expect hundreds of millions of rows, hash-based sharding on `short_code` distributes read load across database replicas.
+The `short_code` column carries a **unique index** — that's your read path. The `expires_at` column lets a background job soft-delete or archive expired mappings. If you expect hundreds of millions of rows, **hash-based sharding on `short_code`** distributes read load across database replicas.
+
+<Callout type="warning">
+**Pressure point — the hot-row counter.** If you `UPDATE click_count = click_count + 1`
+on every single redirect, a viral link becomes a **write hotspot**: thousands of
+requests per second all fighting for a lock on the same row, and your read-heavy
+system suddenly has a write-contention problem it wasn't built for.
+
+Don't count synchronously on the read path. **Fire an event** (or increment a
+Redis counter) and **batch-flush** the totals to the database every few seconds.
+Analytics can tolerate being a few seconds stale; your redirect latency cannot
+tolerate a row lock.
+</Callout>
 
 ## Encoding Algorithm
 
 How do you generate a short code that is compact, unique, and human-readable? The most robust approach is **Base62 encoding of an auto-increment integer**.
 
-Base62 uses the character set `[a-z A-Z 0-9]` — 62 characters total. A 7-character code gives you:
+Base62 uses the character set `[a-z A-Z 0-9]` — 62 characters total. A **7-character code** gives you:
 
 ```
 62^7 = 3,521,614,606,208 ≈ 3.5 trillion unique URLs
 ```
 
-At 100 million new URLs per day, that capacity lasts nearly 100,000 years. The algorithm:
+At 100 million new URLs per day, that capacity lasts nearly **100,000 years**. The algorithm:
 
 1. The database auto-increments the row `id` (e.g., `id = 12345678`).
 2. Convert the integer to Base62: divide repeatedly by 62 and map each remainder to the character set.
 3. The result is the short code (e.g., `"dnh9zR"`).
 
-This approach is collision-free by construction: because the underlying integer is unique, its Base62 representation is unique. There is no need for random code generation, uniqueness checks, or retry loops. The only coordination required is that the auto-increment primary key is unique — which the database guarantees.
+This approach is **collision-free by construction**: because the underlying integer is unique, its Base62 representation is unique. No random generation, no uniqueness checks, no retry loops. The only coordination required is that the auto-increment primary key is unique — which the database already guarantees.
 
-An alternative is to generate random 7-character codes and check for collisions before insertion. This adds complexity (retry logic, potential thundering herd on a popular shortener) for no benefit over the simpler deterministic approach.
+<Callout type="tip">
+**In practice:** why 7 characters and not fewer? Six Base62 characters
+(`62^6 ≈ 56 billion`) would still last centuries, but 7 gives comfortable
+headroom and keeps every code the same length, which is friendlier for indexing
+and UI. The trade-off in the other direction: a single global auto-increment ID
+is a coordination point. At extreme scale, teams hand each shortener node a
+**pre-allocated block of IDs** (or use a Snowflake-style generator) so nodes
+don't fight over the counter.
+</Callout>
+
+An alternative is to generate **random 7-character codes** and check for collisions before insertion. This adds complexity (retry logic, potential thundering herd on a popular shortener) for no real benefit over the deterministic approach.
 
 ## Caching Layer
 
-With 11,600 reads per second and a 10:1 read-to-write ratio, a caching layer is essential. The access pattern follows the **Pareto principle** — roughly 20% of short codes account for 80% of clicks. You only need to cache the hot 20%.
+With **11,600 reads per second** and a 10:1 read-to-write ratio, a caching layer is essential. The access pattern follows the **Pareto principle** — roughly **20% of short codes account for 80% of clicks**. You only need to cache the hot 20%.
 
-**Redis** is the right tool: in-memory, sub-millisecond lookups, supports TTL for cache expiry that mirrors URL expiry. The cache key is `short_code`, the value is `long_url`.
+**Redis** is the right tool: in-memory, **sub-millisecond** lookups, and native TTL support so cache expiry can mirror URL expiry. The cache key is `short_code`; the value is `long_url`.
 
-Cache population strategy: **cache-aside on first read**. On a cache miss, the redirect service fetches from the database and writes the result to Redis with a TTL. Subsequent reads are served from cache.
+Cache population strategy: **cache-aside on first read**. On a cache miss, the redirect service fetches from the database and writes the result into Redis with a TTL. Subsequent reads are served straight from cache.
 
-Cache sizing: if you have 100 million active URLs and the hot 20% is 20 million entries, and each entry is ~512 bytes, you need roughly 10 GB of Redis memory — affordable on a single Redis instance, or distributed via Redis Cluster.
+<Callout type="tip">
+**In practice — cache sizing:** if 100 million URLs are active and the hot 20%
+is 20 million entries at ~512 bytes each, that's roughly **10 GB** of Redis
+memory. That fits on a single beefy Redis instance, or spreads across a Redis
+Cluster for headroom and failover. Notice how cheap the read path becomes: a
+10 GB cache absorbs the vast majority of 11,600 reads/sec that would otherwise
+pound your database.
+</Callout>
 
-**Bloom filter optimization**: a Bloom filter can be placed in front of the cache to short-circuit lookups for short codes that definitely do not exist (e.g., a user manually types `tinyurl.com/zzzzzzz`). A Bloom filter will never return a false negative — if it says "does not exist," you can skip both cache and database. This prevents malicious or accidental enumeration of non-existent codes from reaching the database.
+**Bloom filter optimization**: a Bloom filter placed in front of the cache short-circuits lookups for short codes that **definitely do not exist** (e.g., a user manually types `tinyurl.com/zzzzzzz`). A Bloom filter never returns a false negative — if it says "does not exist," you can safely skip both cache and database. This stops malicious or accidental **enumeration** of non-existent codes from reaching the database.
 
 ## Redirects
 
 When a user visits a short URL, the redirect service must decide between two HTTP status codes:
 
-**301 Moved Permanently** tells the browser that this redirect is permanent. The browser caches it locally and will never send future requests to your server for the same short code. This reduces server load dramatically but permanently removes your ability to observe future clicks from that browser — and makes it impossible to update the destination URL without invalidating a cached response the client has already stored.
+**301 Moved Permanently** tells the browser the redirect is permanent. The browser caches it locally and never sends future requests to your server for that short code. This slashes server load — but it **permanently blinds you to future clicks** from that browser, and makes it impossible to change the destination URL without fighting a response the client has already cached.
 
-**302 Found** (temporary redirect) tells the browser not to cache the redirect. Every click sends a request to your servers, which means you can log every visit, track analytics, and change the destination URL without any client-side cache invalidation problem. The cost is that every click requires a round trip to your infrastructure.
+**302 Found** (temporary redirect) tells the browser *not* to cache the redirect. Every click comes back to your servers, so you can log every visit, track analytics, and change the destination at will. The cost is a round trip per click.
 
-**The recommendation for most URL shorteners is 302**. The QPS from redirects is your primary design challenge, but that is solved by caching at the application layer (Redis), not by browser-side caching. Preserving click analytics — counting visits per short code, understanding geography, timing, referrers — is extremely valuable and is silently destroyed by 301.
+| | 301 Permanent | 302 Temporary |
+|---|---|---|
+| Browser caches redirect | Yes | No |
+| Server load per repeat click | ~zero | one round trip |
+| Click analytics | Lost | Fully captured |
+| Change destination later | Hard (client cached) | Easy |
+| Best for | Static, never-changing links | Almost everything else |
 
-A hybrid approach uses 302 by default and allows power users to opt into 301 (e.g., for links in static marketing materials that will never change and where analytics are not needed).
+**The recommendation for most URL shorteners is 302.** Redirect QPS is your primary design challenge, but you solve that with **application-layer caching (Redis)**, not by handing caching over to the browser. Preserving click analytics — visits per code, geography, timing, referrers — is extremely valuable and is silently destroyed by 301.
+
+A **hybrid** approach uses 302 by default and lets power users opt into 301 (e.g., links in printed marketing materials that will never change and where analytics don't matter).
+
+## Summary
+
+A URL shortener is a **read-heavy** system — about 11,600 reads/sec against just 1,160 writes/sec — so every design decision optimizes the redirect path. Generate codes by **Base62-encoding an auto-increment ID**, which is unique by construction and needs no collision checks, and store the mapping in a simple write-once SQL table. Serve reads from a **Redis cache-aside layer** sized to the hot ~20% of codes (~10 GB), and front it with a **Bloom filter** to swat away lookups for codes that never existed. Return **302 redirects** so every click flows back through you for analytics, and keep click counting **off the synchronous path** by batching increments to avoid hot-row contention. The result: sub-10ms redirects that stay fast and observable even when a single link goes viral.

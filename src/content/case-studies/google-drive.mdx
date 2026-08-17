@@ -19,7 +19,46 @@ takeaways:
   - "Delta sync uploads only changed blocks — critical for large files and slow connections"
   - "Content-addressed storage means storing the same file twice is free at the block level"
 relatedTopics: []
+quiz:
+  - question: "A user edits the last paragraph of a 200 MB video-transcript file and hits save. With 4 MB content-addressed blocks and delta sync, roughly how much data does the client upload?"
+    options:
+      - "The full 200 MB, because the file's overall hash changed"
+      - "About one 4 MB block — only the chunk whose bytes changed"
+      - "Nothing, because the server can recompute the edit itself"
+      - "100 MB, roughly half the file, to be safe"
+    answer: 1
+    explanation: "Delta sync hashes each 4 MB block and uploads only the blocks whose content changed. Editing one paragraph alters the bytes of a single block, so the client re-uploads ~4 MB, not the whole file. The file's overall identity changes, but unchanged blocks are already in the store."
+  - question: "Two employees independently upload the exact same 500 MB training video to their own Drive accounts. What happens in the block store?"
+    options:
+      - "It's stored twice — each user gets a private copy for isolation"
+      - "The second upload is rejected as a duplicate and fails"
+      - "The bytes are stored once; both users' metadata point to the same block hashes"
+      - "The videos are merged into a single shared file both users edit"
+    answer: 2
+    explanation: "Content-addressed storage keys blocks by their SHA-256 hash, so identical bytes resolve to the same address. The second uploader's client sends the hashes, the server already has them, and no bytes are re-uploaded — both accounts' metadata reference the same immutable blocks. Metadata stays per-user; only the physical bytes are deduplicated."
+  - question: "A user edits the same spreadsheet offline on a laptop and a phone, then both reconnect. For a binary/PDF-style file, what's the safest default the system should do?"
+    options:
+      - "Create a conflict copy so both edits are preserved and surfaced to the user"
+      - "Silently keep the later timestamp and discard the other edit"
+      - "Block all future syncs until the user manually merges the file"
+      - "Use CRDTs to merge the two binary files automatically"
+    answer: 0
+    explanation: "For arbitrary binary files, last-write-wins loses real work and CRDTs don't apply (they need a structured schema like Docs/Sheets). A conflict copy keeps both versions and lets the user decide — friction, but no data loss. LWW is only an acceptable fallback when edits are trivial."
+  - question: "A 2 GB upload over flaky mobile data drops at 90% complete. Why does chunked, content-addressed upload make the retry cheap?"
+    options:
+      - "The server compresses the remaining bytes so they transfer faster"
+      - "The client lowers the resolution of the file to shrink it"
+      - "TCP automatically resends only the lost packets, so nothing extra is needed"
+      - "Already-stored blocks are kept, so only the ~200 MB of unacknowledged blocks re-upload"
+    answer: 3
+    explanation: "Each block is addressed and stored independently as it arrives. On retry the client re-sends the block hash list, the server reports which blocks it already has, and only the missing ~10% is uploaded. Resumability comes from block-level durability, not from TCP (a dropped connection loses TCP state entirely)."
 ---
+
+<Callout type="analogy">
+Think of syncing a big file like editing a **50-chapter binder** you keep in two offices. When you fix one sentence, you don't photocopy the whole binder and mail it across town — you swap out the **single page** that changed. Google Drive does exactly this: it cuts every file into fixed-size **blocks** (pages), and when you edit, it ships only the pages that differ.
+
+Now imagine ten coworkers each keep the *same* reference binder. Instead of ten physical copies, the mailroom files **one** master copy and gives everyone a slip that says "your binder = these pages." That slip is metadata; the pages are content-addressed blocks. Same file uploaded twice? The mailroom already has the pages — it stores nothing new.
+</Callout>
 
 ## Requirements
 
@@ -65,6 +104,10 @@ Upload bandwidth = 1 PB / 86,400 ≈ 11.6 GB/sec
 ```
 
 Without delta sync, that 11.6 GB/sec bandwidth requirement grows with every user who edits a large file. With delta sync, most sync events upload only a few kilobytes of changed blocks rather than full files.
+
+<Callout type="tip">
+**In practice:** Dropbox uses ~4 MB blocks; Google Drive and similar systems land in the same ballpark. The block size is a deliberate trade-off — **smaller blocks** dedupe more precisely and re-upload less on an edit, but bloat the metadata (more hashes per file) and add per-block overhead. **Larger blocks** keep metadata lean but force you to re-upload more bytes for a one-line change. 4 MB is the sweet spot for mixed document/photo/video workloads.
+</Callout>
 
 ## File Upload and Chunking
 
@@ -119,6 +162,10 @@ CREATE TABLE file_versions (
 
 The separation is important: metadata changes on every rename, move, or edit, but the underlying block bytes often do not. A rename operation updates one row in the metadata database and touches zero blocks in object storage.
 
+<Callout type="tip">
+**In practice:** the two stores have opposite profiles. **Metadata** is small (a few KB per file), highly relational, and read/written constantly — perfect for SQL. **Blocks** are large (millions of 4 MB objects per user), immutable, and accessed by key — perfect for object storage, where durability is engineered to **11 nines** by replicating each block across multiple facilities. Mixing them (e.g. storing bytes as SQL BLOBs) would wreck both: your database can't hold exabytes, and object stores can't run `WHERE parent_id = ?` queries.
+</Callout>
+
 ## Sync Protocol
 
 The sync client runs on each device, watching the local filesystem for changes. When a change is detected:
@@ -146,6 +193,10 @@ When a user edits a file on two devices simultaneously — or when a device resu
 
 For this design, the pragmatic choice is: **conflict copy with last-write-wins as a fallback**. For most users, conflicts are rare — the system should handle them gracefully when they occur without losing data.
 
+<Callout type="warning">
+**The main bottleneck is concurrent edits, and naive last-write-wins silently eats data.** If you resolve conflicts purely by the later `updated_at` timestamp, the paragraph a user added on their laptop vanishes the moment their phone syncs a typo fix — and nobody is told. Worse, device clocks drift, so "later" isn't even reliable. **How to handle it:** detect conflicts by **base version**, not wall-clock time — if two updates share the same parent version, they conflicted. When they do, **preserve both** as a conflict copy and surface it to the user. Reserve last-write-wins only for edits you can prove are trivial. Losing a byte of a user's file is the one failure this system must never make.
+</Callout>
+
 ## Sharing and Permissions
 
 File sharing requires an **access control list (ACL)** — a mapping from files to users and their permission levels.
@@ -168,3 +219,7 @@ When a user accesses a file, the system checks this table to verify they have th
 **Sharing large folders**: sharing a folder with 50,000 files means writing 50,000 ACL rows. This is done asynchronously — the share operation returns immediately, and a background job propagates the ACL. Users with access to the share link can start accessing files within seconds even before all ACL rows are written, because the system checks both explicit ACL rows and the inherited permission from the parent folder.
 
 The sharing system demonstrates a general principle: for operations that involve large fan-out (sharing → many ACL writes), use asynchronous background processing rather than blocking the user's request. Return optimistically and converge to the correct state in the background.
+
+## Summary
+
+Google Drive's design flows from one constraint: a small edit to a large file must not re-upload the whole file. **Chunking** files into ~4 MB blocks and addressing each block by its **SHA-256 content hash** delivers three wins at once — **delta sync** (upload only changed blocks), **resumable uploads** (already-stored blocks survive a dropped connection), and **automatic deduplication** (identical bytes are stored once). Keep **metadata in SQL** and **blocks in object storage**, because they have opposite access patterns and only object storage reaches 11-nines durability at exabyte scale. Concurrent edits are the hardest problem: resolve conflicts by **base version**, preserve both edits with a **conflict copy**, and never trust wall-clock timestamps to silently pick a winner. Finally, push large fan-out work — notifying devices, propagating folder ACLs — into **async background jobs** and return optimistically.

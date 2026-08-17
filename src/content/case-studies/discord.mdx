@@ -3,7 +3,7 @@ title: "Discord — Real-Time Messaging at Scale"
 description: "Design Discord's messaging system: WebSocket gateways, pub/sub routing, Cassandra for time-series chat history, Snowflake IDs, and the presence and read-state subsystems."
 order: 4
 difficulty: Advanced
-readTime: "18 min read"
+readTime: "20 min read"
 diagram: DiscordDiagram
 isCaseStudy: true
 problemStatement: "Design Discord's messaging system. Users can join servers, create channels, and send messages in real-time."
@@ -19,7 +19,53 @@ takeaways:
   - "Snowflake IDs solve distributed ID generation while preserving time ordering"
   - "Presence and read state are separate systems from message storage — model them differently"
 relatedTopics: []
+quiz:
+  - question: "Client A (connected to Gateway 1) sends a message that Client B, connected to Gateway 47, needs to see instantly. What makes cross-gateway delivery work?"
+    options:
+      - "Gateway 1 publishes to a pub/sub topic for the channel; every gateway subscribed to that channel receives it and pushes to its own clients"
+      - "Gateway 1 opens a direct WebSocket to Gateway 47 and forwards the message"
+      - "Client B polls Cassandra every second to check for new messages"
+      - "A central load balancer copies the message to all 50 million connections"
+    answer: 0
+    explanation: "The sender's gateway has no idea which gateway holds the recipient. Publishing to a channel:{id} pub/sub topic lets any subscribed gateway pick it up — that's the whole point of the pub/sub layer. Direct gateway-to-gateway links would be an O(N²) mesh, and polling Cassandra defeats real-time delivery."
+  - question: "Discord partitions the Cassandra messages table by (channel_id, bucket) instead of just channel_id. Why add the bucket?"
+    options:
+      - "To let two channels share a partition and save disk"
+      - "To make Snowflake IDs unnecessary"
+      - "To cap partition size so a busy channel doesn't create one giant hot partition"
+      - "To allow messages to be read in random order"
+    answer: 2
+    explanation: "A single high-traffic channel would grow one Cassandra partition without bound, hurting performance and creating a hotspot. bucket = message_id / MESSAGES_PER_BUCKET slices the channel's history into bounded, time-ordered partitions. It has nothing to do with sharing partitions or replacing Snowflake IDs."
+  - question: "Why is presence stored in Redis with a 30-second TTL and heartbeats, rather than in Cassandra alongside messages?"
+    options:
+      - "Cassandra cannot store integers"
+      - "Presence is ephemeral and high-churn; Redis's in-memory TTL semantics fit it, while Cassandra is tuned for durable writes"
+      - "Redis is the only store that supports pub/sub"
+      - "Presence must never be lost, so it needs Redis's stronger durability"
+    answer: 1
+    explanation: "Presence vanishes when a user disconnects and changes constantly, so you want fast in-memory writes with automatic expiry — exactly Redis's SETEX/TTL model. Messages are the opposite: permanent and write-heavy, which is Cassandra's domain. Presence is explicitly allowed to degrade, so durability is not the driver."
+  - question: "A viral guild has 300,000 members, and one popular user changes status from idle to online. Left unbounded, what's the danger, and how does Discord contain it?"
+    options:
+      - "Cassandra runs out of disk; Discord compresses messages"
+      - "Snowflake IDs collide; Discord adds more worker bits"
+      - "The WebSocket handshake fails; Discord switches to long-polling"
+      - "Presence fan-out explodes to everyone sharing a server; Discord bounds it to users who share a server or an active DM"
+    answer: 3
+    explanation: "A single presence change can require notifying every co-member — enormous fan-out at Discord's scale. Discord bounds the blast radius by only broadcasting to users who actually share a server or have an active DM, rather than the whole platform. The other options describe unrelated subsystems (storage, ID generation, transport)."
 ---
+
+<Callout type="analogy">
+Think of Discord like a giant office building full of open-plan rooms. Each
+**channel** is a room where anyone standing inside hears every word the moment
+it's spoken — no one shouts "any new messages?" every second.
+
+To pull that off, every person keeps a phone line **permanently open** to the
+building's switchboard (a **WebSocket** to a **gateway server**). When someone
+speaks, the switchboard doesn't just tell people on its own floor — it announces
+it on a **PA system** (**pub/sub**) so every other floor's switchboard can relay
+it to the right rooms. That "always-open line + PA broadcast" pairing is the
+heart of the whole design.
+</Callout>
 
 ## Requirements
 
@@ -59,6 +105,15 @@ Concurrent WebSocket connections ≈ 50,000,000
 
 50 million concurrent persistent connections cannot be handled by a single server — or even a hundred servers. The gateway tier must be horizontally scalable, and coordination between gateway servers (for routing messages to the right connections) requires a pub/sub layer.
 
+<Callout type="tip">
+**In practice:** a well-tuned WebSocket gateway node holds roughly **100k–1M**
+open connections, limited by memory per connection and OS file-descriptor
+limits, not CPU (idle sockets do nothing). At ~500k per node, 50M connections
+means **~100 gateway nodes** just to hold the lines open — before you've routed
+a single message. Discord's gateways run on Elixir/Erlang precisely because that
+runtime is built for millions of lightweight, long-lived processes.
+</Callout>
+
 ## Message Storage
 
 Discord's message history is a classic **time-series write workload**: messages are written in chronological order and read back in time ranges (e.g., "give me the 50 messages before message ID X"). This pattern is a perfect match for **Cassandra**.
@@ -85,6 +140,14 @@ CREATE TABLE messages (
 
 The partition key is `channel_id`. In a very high-volume channel, a single Cassandra partition can grow large. Discord solved this by introducing a **bucket** concept: the partition key becomes `(channel_id, bucket)` where `bucket = message_id / MESSAGES_PER_BUCKET`. This caps partition size and prevents hot partitions.
 
+<Callout type="tip">
+**In practice:** Discord famously ran ~trillions of messages on Cassandra and
+later migrated to **ScyllaDB** (a C++ rewrite of Cassandra) to tame latency
+spikes from garbage-collection pauses and hot partitions. The data model stayed
+the same — partition by channel + bucket, cluster by Snowflake ID — proving the
+design was sound; the pain was in the JVM's operational tail, not the schema.
+</Callout>
+
 ## Real-Time Messaging
 
 When a user sends a message, it must be delivered to every connected client in that channel within milliseconds. This requires a **persistent connection** from each client to the server — HTTP request-response is too slow and too stateful to set up per-message.
@@ -102,6 +165,22 @@ The pub/sub layer solves the **cross-gateway delivery problem**: the sender's cl
 
 This architecture scales horizontally: add more gateway servers to handle more concurrent connections; the pub/sub fan-out handles cross-server delivery transparently.
 
+<Callout type="warning">
+**The bottleneck — large-server fan-out.** A message in a small channel touches a
+handful of connections. A message in a **500,000-member channel** must be pushed
+to up to half a million WebSocket connections *within the latency budget*. That
+single publish can swamp the gateways subscribed to it, and every co-member's
+presence change adds more fan-out on top.
+
+**How to handle it:** only fan out to **connected** members (offline users read
+from Cassandra on reconnect, not via push); subscribe a gateway to a channel
+**once** and let it fan out locally to its many clients rather than per-client;
+shard/replicate the pub/sub topic for the hottest channels; and cap per-user
+subscriptions so one client can't force a gateway to join tens of thousands of
+topics. This "connected-only, subscribe-once" rule is what keeps fan-out from
+becoming O(members × servers).
+</Callout>
+
 ## Presence System
 
 Presence — knowing which users are online, idle, or offline — is a separate system from messaging. It has different data characteristics: it is **ephemeral** (presence state disappears when a user goes offline) and **high-churn** (hundreds of thousands of state changes per second as users connect and disconnect).
@@ -115,6 +194,14 @@ Presence — knowing which users are online, idle, or offline — is a separate 
 Why not store presence in Cassandra? Presence data is inherently short-lived and requires fast TTL support. Redis's in-memory storage and native TTL semantics are a far better fit than Cassandra for this pattern.
 
 **Scale consideration**: a user may share servers with thousands of other users. Broadcasting that user's presence change to all of them is expensive fan-out. Discord limits presence broadcast to users who explicitly share a server or have an active DM — not every user on the platform. This bounds the fan-out.
+
+<Callout type="tip">
+**In practice:** presence is deliberately the *lowest-priority* subsystem. The
+non-functional requirements even say temporary presence degradation is
+acceptable — so under load Discord will happily let a status dot go stale for a
+few seconds rather than let presence fan-out steal capacity from message
+delivery. When you cut a corner in an interview, cut it here, not on messages.
+</Callout>
 
 ## Read State
 
@@ -153,3 +240,16 @@ This architecture means a member list lookup for a large guild is a call to one 
 - 12 bits of sequence number (4096 IDs per millisecond per worker)
 
 The result is an ID that is globally unique, time-sortable (higher IDs are always more recent), and generated without any central coordination. Sorting messages by `message_id` is equivalent to sorting by `created_at` — which makes Cassandra's clustering key both an ordering column and a unique identifier in a single field.
+
+## Summary
+
+Discord's messaging core rests on two moving parts: **persistent WebSocket
+connections** to horizontally-scaled **gateway servers**, and a **pub/sub layer**
+that relays each message across gateways so any client can reach any other. Chat
+history is a time-series write workload, so it lives in **Cassandra/ScyllaDB**
+partitioned by `(channel_id, bucket)` and ordered by time-sortable **Snowflake
+IDs**. **Presence** and **read state** are handled by separate stores (Redis and
+a simple key-value/relational table) because they are ephemeral and low-risk, not
+durable like messages. The hardest problem at scale is **fan-out** — pushing one
+message to a huge channel's connections — which you tame by fanning out only to
+connected members and subscribing each gateway to a channel once.

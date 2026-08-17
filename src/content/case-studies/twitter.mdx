@@ -1,9 +1,9 @@
 ---
 title: "Twitter — News Feed at Scale"
-description: "Design Twitter's core news feed: tweet storage, fan-out strategies, the celebrity problem, and how Redis sorted sets power real-time timelines for 300M daily users."
+description: "Design Twitter's news feed: tweet storage, fan-out on write vs read, the celebrity problem, and how Redis sorted sets power real-time timelines for 300M daily users."
 order: 2
 difficulty: Advanced
-readTime: "20 min read"
+readTime: "22 min read"
 diagram: TwitterDiagram
 isCaseStudy: true
 problemStatement: "Design Twitter's core news feed system. Users can post tweets, follow other users, and see a feed of tweets from people they follow."
@@ -19,7 +19,55 @@ takeaways:
   - "Redis sorted sets are the ideal data structure for a real-time ranked timeline"
   - "Separate tweet storage (Cassandra) from media storage (S3) — different access patterns"
 relatedTopics: []
+quiz:
+  - question: "Your design uses fan-out on write for everyone. A celebrity with 20 million followers posts a tweet. What is the immediate consequence?"
+    options:
+      - "The system writes the tweet ID into 20 million timeline caches — a huge write-amplification spike that delays the tweet from appearing"
+      - "Every follower's read latency drops to zero instantly"
+      - "The tweet is stored once and read lazily, so nothing expensive happens"
+      - "Redis automatically deduplicates the writes so cost stays constant"
+    answer: 0
+    explanation: "Fan-out on write must push the tweet ID into one sorted set per follower. For a 20M-follower celebrity that's 20M writes in a burst, which takes minutes and delays delivery — exactly why celebrities need fan-out on read instead."
+  - question: "A follower opens their home timeline. With fan-out on write in place, what does the read actually do?"
+    options:
+      - "Joins the follows table against the tweets table across all followees at read time"
+      - "Recomputes the whole timeline by pulling recent tweets from every account followed"
+      - "Reads the top N tweet IDs from the user's pre-built Redis sorted set, then batch-fetches tweet content"
+      - "Scans Cassandra for every tweet posted in the last hour and filters it"
+    answer: 2
+    explanation: "The point of pre-computation is that the timeline is already assembled. The read is a cheap ZREVRANGE on the sorted set plus one batched content lookup — no join, no per-followee scan."
+  - question: "In the hybrid strategy, why is merging celebrity tweets at read time cheap even though fan-out on read is normally expensive?"
+    options:
+      - "Celebrities post far less often than regular users"
+      - "Any given user follows only a handful of celebrities, and those tweets are already cached at the tweet level"
+      - "Redis sorted sets make all reads free regardless of size"
+      - "Celebrity tweets are stored in MySQL, which is faster than Redis"
+    answer: 1
+    explanation: "Fan-out on read is only costly when you fan out over many accounts. A user follows very few celebrities, so the read-time merge is a tiny, bounded operation — and those hot celebrity tweets are already warm in the tweet cache."
+  - question: "Why store only the most recent ~800 tweet IDs per user in the timeline sorted set instead of the full history?"
+    options:
+      - "Redis cannot hold sorted sets larger than 800 elements"
+      - "Older tweets are deleted from the system entirely"
+      - "800 is the maximum a follower can ever scroll"
+      - "It bounds Redis memory while still covering nearly all real scroll sessions; older tweets fall back to the database"
+    answer: 3
+    explanation: "The cache is a bounded hot window, not the source of truth. Almost every scroll session stays within the recent range, so capping the set controls memory cost; the rare deep scroll reads from the database instead."
 ---
+
+<Callout type="analogy">
+Think of a timeline like a **personal mailbox**. Two ways to fill it:
+
+**Push (fan-out on write):** the moment someone you follow posts, a mail carrier
+drops a copy into your mailbox. When you open it, everything is already there —
+instant. But if a famous person posts, the carrier has to run to *millions* of
+mailboxes at once. That's the **celebrity problem**.
+
+**Pull (fan-out on read):** your mailbox stays empty until you open it, then you
+run around collecting mail from everyone you follow. Cheap to send, slow to read.
+
+The whole Twitter design is choosing *when* to do the copying — and Twitter's
+answer is "**both, depending on how famous you are.**"
+</Callout>
 
 ## Requirements
 
@@ -52,6 +100,14 @@ Timeline read QPS = 300M × 5 / 86,400 ≈ 17,361 reads/sec
 ```
 
 Reads outpace writes by roughly 3:1. But the real cost of timeline generation is not just the count of reads — it is what each read requires: assembling tweets from potentially hundreds of followed accounts, sorted by time, paginated. Without pre-computation, every timeline read is an expensive database join. This is why the **fan-out strategy** is the central architectural question.
+
+<Callout type="tip">
+**In practice:** ~5,800 writes/sec and ~17,000 reads/sec are both modest for a
+sharded system — the numbers alone don't scare anyone. The scary number is the
+*amplification*: one write can trigger thousands or millions of follower-timeline
+updates. Always estimate **fan-out per write**, not just raw write QPS — that's
+what actually sizes the system.
+</Callout>
 
 ## Tweet Storage
 
@@ -121,11 +177,41 @@ Redis sorted set operations are O(log n), making both insertion (during fan-out)
 
 **Fan-out on read** (pull model) is the opposite: when a follower opens their feed, the system computes it on the fly — fetch followees, fetch their recent tweets, merge, sort. This works for low-traffic users but degrades as the follower's following-list grows. The read latency is proportional to the number of accounts followed.
 
-Fan-out on write is better for read latency. Fan-out on read is better for write efficiency. Neither is universally correct.
+The two strategies trade the same cost back and forth — you're deciding *when* to pay for assembling the timeline:
+
+| | Fan-out on write (push) | Fan-out on read (pull) |
+|---|---|---|
+| **Work at post time** | Heavy — write to every follower | Cheap — store once |
+| **Work at read time** | Cheap — one cache lookup | Heavy — gather + merge + sort |
+| **Read latency** | Low (pre-built) | Grows with accounts followed |
+| **Breaks when** | An account has millions of followers | A user follows huge numbers of accounts |
+| **Best for** | Regular users (most of Twitter) | Celebrities / rarely-read feeds |
+
+Fan-out on write is better for read latency. Fan-out on read is better for write efficiency. **Neither is universally correct** — which is why the real design uses both.
+
+<Callout type="tip">
+**In practice:** Twitter is heavily read-optimized, so it defaults to **fan-out
+on write** — reads happen ~3× more often than writes, and users expect the feed
+to load in under 200ms. You pay the cost once at write time so millions of reads
+stay cheap. The exceptions are the accounts where "once" means "millions of times."
+</Callout>
 
 ## Handling Celebrities
 
 Fan-out on write breaks for accounts with millions of followers. When a celebrity with 10 million followers posts a tweet, the fan-out worker must write to 10 million Redis sorted sets. At write-time, that is a catastrophic write amplification event — it takes minutes to complete, during which the celebrity's tweet has not yet appeared in most followers' feeds.
+
+<Callout type="warning">
+**The bottleneck: celebrity fan-out.** A single tweet from a mega-account can
+turn into *millions* of cache writes. Push this to every follower and you get
+minutes-long delivery lag, a hammered Redis cluster, and a worker queue that
+backs up for everyone else too.
+
+**The fix:** don't push celebrity tweets at all. Set a follower-count threshold
+(e.g. 100K). Above it, switch that account to **fan-out on read** — leave its
+tweets out of follower timelines and merge them in *when a follower actually
+reads*. This caps the worst-case write cost and keeps the fan-out workers free
+for the millions of ordinary posts.
+</Callout>
 
 Twitter's actual solution is a **hybrid fan-out strategy**:
 
@@ -158,3 +244,15 @@ When a follower opens their feed, the app calls `ZREVRANGE timeline:{user_id} 0 
 - **S3 + CDN**: images and video attached to tweets.
 
 This separation reflects different access patterns: SQL for relational queries, Cassandra for high-volume time-series writes, Redis for sub-millisecond in-memory lookups, and object storage for large binary blobs.
+
+<Callout type="tip">
+**In practice:** the timeline sorted set stores only tweet **IDs**, never full
+tweet objects. Content lives once in a separate tweet cache and is shared across
+every follower's timeline. So a viral tweet followed by a million people costs
+a million tiny 8-byte ID entries — not a million copies of the text and media.
+That's what makes the 800-ID-per-user cap affordable.
+</Callout>
+
+## Summary
+
+Twitter's news feed is fundamentally a choice about **when to assemble the timeline**. Fan-out on write pre-builds each follower's timeline in a **Redis sorted set** so reads are a single O(log n) lookup — ideal for a read-heavy system that must respond in under 200ms. That model collapses for **celebrities**, whose posts would trigger millions of cache writes, so Twitter switches high-follower accounts to fan-out on read and merges their tweets in at read time — a **hybrid strategy** that bounds worst-case write cost while keeping most reads cheap. Underneath, storage is split by access pattern: MySQL for relationships, Cassandra for the tweet archive, Redis for timelines and hot tweet objects, and S3 plus a CDN for media. The recurring lesson is to separate the **storage** problem from the **feed-generation** problem, and to size the system by fan-out amplification rather than raw QPS.

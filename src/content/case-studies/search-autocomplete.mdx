@@ -1,6 +1,6 @@
 ---
 title: "Search Autocomplete"
-description: "Design Google-style search autocomplete: a Trie data structure, pre-computed top-K completions, an offline data pipeline, and Redis caching for sub-millisecond prefix lookups."
+description: "Design Google-style search autocomplete: a Trie for prefix lookup, pre-computed top-K completions at every node, an offline data pipeline, and Redis caching for sub-100ms suggestions."
 order: 8
 difficulty: Intermediate
 readTime: "14 min read"
@@ -18,32 +18,84 @@ takeaways:
   - "Pre-computing top-K at each node makes serving O(prefix length) — extremely fast"
   - "Separate the offline Trie-building pipeline from the real-time serving layer"
   - "Cache common prefixes in Redis — a small cache handles most traffic"
+quiz:
+  - question: "A user types 's' and expects the top-5 completions in under 100ms. Without pre-computing top-K, why is a plain Trie DFS too slow for this prefix?"
+    options:
+      - "The subtree under 's' contains millions of nodes, so collecting and sorting all descendants blows the latency budget"
+      - "A Trie can't represent the letter 's' with only 26 children"
+      - "Redis can't cache single-character prefixes"
+      - "The DFS has to hit disk on every node"
+    answer: 0
+    explanation: "A short, popular prefix like 's' roots an enormous subtree. Walking every descendant leaf and sorting by frequency at query time is millions of operations — far too slow for a 100ms keystroke budget. Pre-computing top-K at each node turns this into an O(prefix length) lookup."
+  - question: "The team aggregates search frequency over a rolling 7-day window instead of all-time counts. What is the main benefit?"
+    options:
+      - "It makes the Trie smaller than an all-time Trie"
+      - "It guarantees exactly-once counting of every query"
+      - "Trending queries surface fast and stale ones decay, keeping suggestions fresh"
+      - "It removes the need for a caching layer"
+    answer: 2
+    explanation: "A rolling window weights recent behavior, so a query that spikes this week rises quickly and last year's viral term fades. All-time counts would keep stale queries pinned at the top forever."
+  - question: "A live news event goes viral this morning, but the Trie is rebuilt only weekly. How do production autocomplete systems surface it the same day?"
+    options:
+      - "Rebuild the entire Trie from scratch on every keystroke"
+      - "A real-time stream (e.g. Flink) tracks hourly spikes and injects trending queries into the serving Trie with a boosted score"
+      - "Increase the Redis TTL so old results live longer"
+      - "Wait for the next weekly batch — same-day trends are impossible"
+    answer: 1
+    explanation: "A two-tier design combines a weekly batch (historical accuracy) with a real-time sliding-window counter that detects hourly spikes and injects them immediately. Raising the cache TTL would do the opposite — it would slow freshness."
+  - question: "You need to publish a freshly rebuilt Trie to servers handling live traffic with zero downtime. Which approach fits best?"
+    options:
+      - "Mutate the live Trie in place while requests are reading it"
+      - "Take the service offline, load the new Trie, then bring it back up"
+      - "Add a global lock around every read so writes can slip in"
+      - "Build the new Trie fully, then atomically swap the pointer the request handler reads"
+    answer: 3
+    explanation: "Building the whole new Trie offline and flipping a single pointer makes the update atomic from the request handler's view — no locks, no downtime, no half-updated state. In-place mutation would expose partial writes to live readers."
 relatedTopics: []
 ---
 
+<Callout type="analogy">
+Autocomplete is a **phone book that finishes your sentence**. You flip to the
+"Sy" tab and instantly see the most-called "Sy…" numbers — you don't read every
+name in the book.
+
+A **Trie** is that tabbed phone book for search queries: each letter you type
+narrows you to a page. And instead of scanning that page every time, we
+**pre-write the top 5 answers right on the tab** ahead of time. Typing becomes:
+walk to the tab, read the sticky note. That's the whole trick.
+</Callout>
+
 ## Requirements
 
-Search autocomplete is a latency-sensitive feature: users type fast, and suggestions must appear within 100ms of each keystroke — otherwise the experience feels broken.
+Search autocomplete is a **latency-sensitive** feature: users type fast, and suggestions must appear **within 100ms** of each keystroke — otherwise the experience feels broken.
 
 **Functional requirements:**
-- As a user types a query, return the top 5 most popular search completions for the current prefix.
-- Completions are ranked by historical search frequency (how many users searched for this query).
+- As a user types, return the **top 5 most popular completions** for the current prefix.
+- Rank completions by **historical search frequency** (how many users searched for this query).
 - Support queries up to 50 characters long.
-- Support only ASCII lowercase for the initial design (English alphabet, 26 characters).
+- Support ASCII lowercase for the initial design (26-letter English alphabet).
 
 **Non-functional requirements:**
-- **Latency**: return suggestions in under 100ms end-to-end per keystroke.
-- **Scale**: assume a Google-scale search engine with billions of past searches to learn from.
-- **Freshness**: the Trie should reflect recent search trends — an event from yesterday should surface quickly.
-- **Read-heavy**: users query the autocomplete service orders of magnitude more than they submit searches.
+- **Latency**: suggestions in under 100ms end-to-end, per keystroke.
+- **Scale**: Google-scale — billions of past searches to learn from.
+- **Freshness**: reflect recent trends — yesterday's event should surface quickly.
+- **Read-heavy**: users *query* autocomplete far more often than they *submit* a full search.
 
-The system splits naturally into two separate concerns: a **data gathering phase** that learns from past searches, and a **serving phase** that responds to live queries. Design them independently.
+The system splits naturally into two independent concerns: a **data gathering phase** that learns from past searches, and a **serving phase** that answers live keystrokes. Design them separately.
+
+<Callout type="tip">
+**In practice — the two-system split.** Notice the shapes are opposite. Data
+gathering is **write-heavy, batch, latency-doesn't-matter** (runs nightly).
+Serving is **read-heavy, real-time, latency-is-everything** (100ms budget).
+Bolting them together is a classic mistake — the offline job would stall the hot
+path. Keep them apart and each can be tuned for its own goal.
+</Callout>
 
 ## Data Gathering Phase
 
-The autocomplete system learns what people search for by observing completed queries. Every time a user submits a full search, that query string and a frequency count are recorded.
+The system learns what people search for by observing **completed** queries. Every time a user submits a full search, the query string and a frequency count are recorded.
 
-**Search frequency table**:
+**Search frequency table:**
 
 ```sql
 CREATE TABLE search_frequency (
@@ -53,46 +105,60 @@ CREATE TABLE search_frequency (
 );
 ```
 
-This table grows to billions of rows at Google scale. A raw SQL query every time the Trie is rebuilt would be infeasibly slow. Instead, the data pipeline works in two steps:
+This table grows to **billions of rows** at Google scale. Running a raw SQL query every time the Trie is rebuilt would be infeasibly slow. Instead, the pipeline works in two steps:
 
-1. **Stream raw queries**: every submitted search is written to a Kafka topic (`search-events`) with the query string and timestamp. Kafka provides durability and allows multiple consumers — the indexing pipeline and the autocomplete pipeline can both read the same stream.
+1. **Stream raw queries** — every submitted search is written to a Kafka topic (`search-events`) with the query string and timestamp. Kafka gives **durability** and lets multiple consumers read the same stream (the indexing pipeline and the autocomplete pipeline both tap it).
 
-2. **Aggregate weekly**: a batch job (Spark or Flink) reads the Kafka stream, aggregates query frequencies over a rolling window (e.g., the past 7 days), and writes the aggregated counts to the frequency table. Using a weekly window rather than all-time counts ensures that trending queries (a current news event) surface quickly and stale queries (last year's viral meme) naturally decay.
+2. **Aggregate over a window** — a batch job (Spark or Flink) reads the stream, aggregates query frequencies over a **rolling 7-day window**, and writes the counts to the frequency table. A weekly window (rather than all-time counts) means **trending queries surface fast** and **stale queries decay naturally**.
 
-The aggregation job runs on a schedule (e.g., nightly) and produces a snapshot of the top-N queries and their counts. This snapshot is the input to the Trie builder.
+The aggregation runs on a schedule (e.g., nightly) and emits a snapshot of the top-N queries and their counts. That snapshot is the input to the Trie builder.
 
-**Real-time trend injection**: a weekly update cycle means a query that trends today does not appear in autocomplete for up to 7 days. For fast-moving events, supplement the batch pipeline with a real-time stream: a sliding-window counter in Redis tracks query frequency for the past hour. Queries that spike dramatically in the hourly window are injected into the serving Trie with a boosted score, bypassing the weekly batch cycle.
+<Callout type="warning">
+**The freshness trap.** A weekly window means a query that trends *today* won't
+appear for up to **7 days** — unacceptable for breaking news. The fix is a
+**second, real-time tier**: a sliding-window counter in Redis tracks per-query
+frequency over the **last hour**. Any query that spikes past a threshold is
+**injected into the serving Trie with a boosted score**, bypassing the batch
+cycle entirely. Batch for accuracy, stream for speed — you need both.
+</Callout>
 
 ## Serving Phase
 
-When a user types "sys", the system must return the top 5 completions for the prefix "sys" — ideally queries like "system design", "system of a down", "syscall" — within 100ms including network round-trip.
+When a user types "sys", the system must return the top 5 completions for "sys" — ideally "system design", "system of a down", "syscall" — within 100ms *including* the network round-trip.
 
-The serving flow is straightforward:
-1. User types a character. The browser sends `GET /autocomplete?q=sys`.
-2. The Autocomplete Service checks the Redis cache for the prefix "sys".
-3. **Cache hit**: return the cached top-5 list immediately.
-4. **Cache miss**: query the in-memory Trie service for top-5 completions of "sys". Write the result to the Redis cache. Return the result.
+The serving flow is short:
+1. User types a character → browser sends `GET /autocomplete?q=sys`.
+2. Autocomplete Service checks the **Redis cache** for prefix "sys".
+3. **Cache hit** → return the cached top-5 immediately.
+4. **Cache miss** → query the in-memory **Trie service** for the top-5, write the result to Redis, return it.
 
-The Trie service is an in-memory process that loads the Trie from a serialized snapshot at startup. It serves pure in-memory lookups — no disk I/O on the hot path.
+The Trie service is an in-memory process that loads the Trie from a serialized snapshot at startup. It serves **pure in-memory lookups — no disk I/O on the hot path.**
 
-**Browser-side caching**: results for a given prefix do not change second-to-second. The API response can include a short `Cache-Control: max-age=60` header. The browser caches results for 60 seconds, which means if the user deletes and re-types the same prefix within a minute, no request is sent at all. This reduces server load substantially during heavy typing sessions.
+<Callout type="tip">
+**In practice — spend the 100ms wisely.** A cross-continent round trip alone can
+eat 100–200ms, so most of your budget is *network*, not compute. That's why edge
+proximity, a Redis hit (sub-millisecond), and a debounce on the client (fire only
+after the user pauses ~50ms of typing) matter as much as the Trie itself.
+</Callout>
+
+**Browser-side caching:** results for a prefix don't change second-to-second, so the API response can carry `Cache-Control: max-age=60`. The browser caches for 60 seconds — if the user deletes and re-types the same prefix within a minute, **no request is sent at all**, cutting server load sharply during heavy typing.
 
 ## Trie Data Structure
 
-A **Trie** (prefix tree) is the natural data structure for prefix search. Each node represents one character. The path from the root to any node spells out a prefix. The path from the root to a leaf spells out a complete query.
+A **Trie** (prefix tree) is the natural structure for prefix search. Each node is one character. The path from root to any node spells a **prefix**; the path from root to a leaf spells a **complete query**.
 
 For the query "system design":
-- The root has a child node `s`.
-- `s` has child `y`, which has child `s`, then `t`, `e`, `m`, ` ` (space), `d`, `e`, `s`, `i`, `g`, `n`.
-- At the leaf node, you store that "system design" has frequency 9,400,000.
+- The root has a child `s`.
+- `s` → `y` → `s` → `t` → `e` → `m` → `(space)` → `d` → `e` → `s` → `i` → `g` → `n`.
+- At the leaf you store that "system design" has frequency **9,400,000**.
 
-A prefix query for "sys" means: traverse from root → `s` → `y` → `s`. The node at `s` (depth 3) is the **prefix node**. To find the top-5 completions, you need to explore all paths descending from this node and find the 5 with the highest frequency counts.
+A prefix query for "sys" traverses root → `s` → `y` → `s`. That node (depth 3) is the **prefix node**. To get the top 5 completions, you must explore all paths descending from it and pick the 5 highest-frequency queries.
 
-The naive approach is a DFS from the prefix node to find all descendant leaves, then sort by frequency. For a popular short prefix like "s", the descendant subtree contains millions of nodes — the DFS is prohibitively expensive at query time.
+The **naive approach** — DFS from the prefix node to gather every descendant leaf, then sort by frequency — collapses for a popular short prefix. Under "s" the subtree holds **millions of nodes**, and doing that DFS on every keystroke is hopeless within 100ms.
 
 ## Optimizing the Trie
 
-The critical optimization is **pre-computing top-K at every node during Trie build time**. Instead of searching for completions at query time, each node in the Trie stores the top-5 completions for its prefix along with their frequency counts:
+The key optimization is **pre-computing top-K at every node at build time**. Instead of *searching* for completions on each query, each node **stores** the top-5 completions for its prefix with their frequencies:
 
 ```
 Node "sys" → top5: [
@@ -104,26 +170,34 @@ Node "sys" → top5: [
 ]
 ```
 
-With pre-computed top-K, a query for prefix "sys" requires only:
-1. Traverse from root to the prefix node: O(p) operations, where p is the prefix length.
-2. Read the pre-stored top-5 list from that node: O(1).
+With pre-computed top-K, a query for "sys" needs only:
+1. Traverse root → prefix node: **O(p)**, where p is the prefix length.
+2. Read the pre-stored top-5 list: **O(1)**.
 
-Total query complexity: **O(p)** — proportional only to the prefix length, independent of the number of descendants. For a 10-character prefix, that is 10 node lookups. This is extremely fast.
+Total: **O(p)** — proportional only to prefix length, independent of how many descendants exist. A 10-character prefix is just 10 node hops. Extremely fast.
 
-**Building with top-K at every node**: during Trie construction, process nodes bottom-up. Leaf nodes have their own frequency. Each internal node's top-K list is computed by merging the top-K lists of all its children and retaining the top K. This is O(n × K × log K) for the whole Trie, where n is the number of nodes — expensive at build time, but build time is offline and latency does not matter.
+**Building top-K bottom-up:** during construction, process nodes bottom-up. Leaves carry their own frequency. Each internal node's top-K is the **merge of its children's top-K lists**, keeping only the top K. This is O(n × K × log K) across the Trie — expensive, but it runs **offline** where latency doesn't matter.
 
-**Storage of the Trie**: a 26-ary Trie for the English alphabet stores up to 26 child pointers per node. For the full vocabulary of billions of queries, the Trie has millions of nodes. Serializing the Trie to disk:
-- For the serving layer: load the serialized Trie into process memory at startup.
-- For persistence: store the snapshot in S3. On Trie server restart, download and deserialize from S3.
-- Binary serialization (protobuf or a custom format) is more space-efficient than JSON.
+<Callout type="tip">
+**In practice — trade build cost for query speed.** This is the whole design
+philosophy: you happily burn minutes of offline CPU merging top-K lists so that
+each of billions of daily keystrokes costs ~10 pointer hops. Precomputation moves
+work off the hot path — the same reason CDNs pre-warm content and search engines
+pre-build inverted indexes.
+</Callout>
+
+**Storing the Trie:** a 26-ary Trie (one child slot per letter) grows to **millions of nodes** for the full vocabulary. To persist and load it:
+- **Serving**: load the serialized Trie into process memory at startup.
+- **Persistence**: keep the snapshot in **S3**; on restart, download and deserialize.
+- Use **binary serialization** (protobuf or a custom format) — far more compact than JSON.
 
 ## Caching
 
-The Trie query is already O(p) — sub-millisecond for in-memory lookups. But under heavy traffic, even fast Trie lookups add up. Caching dramatically reduces Trie load.
+The Trie query is already O(p) — sub-millisecond in memory. But under heavy traffic even fast lookups pile up, so a cache in front removes most of them.
 
-**The Pareto principle applies to prefixes**: a small fraction of prefixes account for the vast majority of autocomplete queries. Users typing "the", "how", "what", "new", "you" collectively represent enormous traffic. Caching the top 10,000 most-queried prefixes absorbs the vast majority of traffic without a Trie lookup.
+**The Pareto principle applies to prefixes:** a small fraction of prefixes drive the vast majority of queries. Prefixes like "the", "how", "what", "new", "you" together carry enormous traffic. Caching the **top ~10,000 prefixes** absorbs most requests without touching the Trie.
 
-**Redis cache layer**:
+**Redis cache layer:**
 
 ```
 Key:   autocomplete:{prefix}
@@ -131,29 +205,49 @@ Value: JSON array of top-5 completions with frequencies
 TTL:   3600 seconds (1 hour)
 ```
 
-Cache population is lazy (cache-aside): on a cache miss, the Trie service is queried and the result is written to Redis with a 1-hour TTL. After an hour, the cached result expires and the next query re-fetches from the Trie. This naturally refreshes the cache when the Trie is updated after a weekly batch rebuild.
+Population is **cache-aside (lazy)**: on a miss, query the Trie, write the result to Redis with a 1-hour TTL. When the TTL expires, the next query re-fetches — which naturally refreshes the cache after a weekly rebuild.
 
-**Cache hit rates**: because query prefixes follow a Zipfian distribution (a small number of prefixes are queried extremely often), a Redis cache with a few hundred megabytes of memory can achieve 80%+ cache hit rates — meaning 80% of autocomplete requests never reach the Trie service.
+<Callout type="tip">
+**In practice — a tiny cache goes a long way.** Because prefix popularity follows
+a **Zipfian** distribution, a Redis cache of only a **few hundred megabytes** can
+reach **80%+ hit rates** — meaning 80% of keystrokes never reach the Trie service
+at all. Cheap memory, huge load reduction.
+</Callout>
 
 ## Scale
 
-**Partitioned Trie**: a single Trie server is eventually insufficient for both memory and query volume. Shard the Trie by the first character of the prefix:
+**Partitioned Trie:** one server eventually can't hold the whole Trie or serve the whole query volume. **Shard by first character** of the prefix:
 
-- Shard A handles all prefixes starting with `a`
-- Shard B handles `b`
-- ...
+| Shard | Handles prefixes starting with |
+|---|---|
+| A | `a` |
+| B | `b` |
+| … | … |
+| Z | `z` |
 
-The API gateway routes incoming queries to the correct Trie shard based on the first character. This gives 26 independent shards, each holding roughly 1/26 of the Trie. For very popular first characters, further shard by the second character.
+The API gateway routes each query to the correct shard by its first character — 26 independent shards, each ~1/26 of the Trie. For very popular first letters, shard further by the **second** character.
 
-**Trie update strategy**: the Trie cannot be updated in place while serving live traffic without complex locking. Instead, use an **atomic swap**:
-1. The batch job builds a completely new Trie from the latest frequency snapshot.
-2. The new Trie is serialized and uploaded to S3.
-3. Trie servers are signaled to download the new snapshot and hot-swap it: they load the new Trie into memory, then atomically update the pointer the serving code reads from.
-4. The old Trie is garbage collected.
+<Callout type="warning">
+**Hot-shard skew.** Splitting by first letter does *not* split traffic evenly —
+prefixes starting with `s` or `t` dwarf those starting with `x` or `z`. A naive
+26-way split overloads the popular shards. Mitigate by **splitting hot letters
+finer** (by second character) and **adding read replicas** for hot shards, so
+load — not just the alphabet — drives the partitioning.
+</Callout>
 
-This gives zero-downtime updates: the swap is atomic from the request handler's perspective.
+**Trie update strategy:** you can't safely mutate the Trie in place while it serves live traffic (it needs complex locking). Use an **atomic swap** instead:
+1. The batch job builds a **completely new Trie** from the latest snapshot.
+2. Serialize it and upload to S3.
+3. Trie servers download the new snapshot, load it into memory, then **atomically flip the pointer** the serving code reads from.
+4. The old Trie is garbage-collected.
 
-**Handling real-time trends**: a weekly batch cycle misses same-day trends. The real-time pipeline works alongside the offline pipeline:
-- A Flink streaming job reads from the `search-events` Kafka topic and maintains sliding-window frequency counts for the past hour.
-- Queries whose hourly count exceeds a threshold (e.g., 10,000 searches in the last hour) are injected into the Trie with a boosted score, surfacing them in autocomplete immediately.
-- This two-tier approach (weekly batch for historical accuracy + real-time for trend sensitivity) is how production autocomplete systems handle breaking news and viral events.
+This gives **zero-downtime updates**: from the request handler's view, the swap is instantaneous.
+
+**Handling real-time trends:** the batch cycle misses same-day spikes, so a real-time pipeline runs alongside it:
+- A **Flink** job reads `search-events` and keeps sliding-window counts for the last hour.
+- Queries whose hourly count exceeds a threshold (e.g., **10,000 searches/hour**) are injected into the Trie with a boosted score, surfacing immediately.
+- This **two-tier** design — weekly batch for historical accuracy, real-time stream for trend sensitivity — is how production autocomplete handles breaking news and viral events.
+
+## Summary
+
+Autocomplete is a **prefix-lookup problem**, and a **Trie** models it perfectly: each character narrows the search, and pre-computing the **top-5 at every node** turns serving into an O(prefix length) read instead of a costly subtree scan. Split the system in two — an **offline pipeline** (Kafka → windowed aggregation → Trie build → atomic swap into S3-backed servers) and a **real-time serving layer** (Redis cache in front of an in-memory Trie) — so each is tuned for its opposite goal. A small Redis cache exploits the **Zipfian** popularity of prefixes to answer 80%+ of keystrokes without a Trie lookup. To meet the **sub-100ms** budget while staying fresh, combine a weekly batch (accuracy) with an **hourly real-time tier** that injects trending queries. Scale horizontally by **sharding on the first character**, watching for hot-shard skew, and publish updates with a **zero-downtime atomic pointer swap**.

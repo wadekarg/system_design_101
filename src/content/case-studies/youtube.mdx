@@ -3,7 +3,7 @@ title: "YouTube — Video Upload and Streaming"
 description: "Design YouTube's video platform: chunked upload, asynchronous transcoding pipelines, adaptive bitrate streaming with HLS/DASH, and CDN economics for 1 billion hours of daily playback."
 order: 3
 difficulty: Advanced
-readTime: "22 min read"
+readTime: "24 min read"
 diagram: YoutubeDiagram
 isCaseStudy: true
 problemStatement: "Design YouTube. Users should be able to upload videos, and other users should be able to stream them with minimal buffering."
@@ -19,7 +19,54 @@ takeaways:
   - "Adaptive bitrate streaming adjusts video quality based on network conditions in real-time"
   - "CDNs make YouTube economically viable by caching popular videos near users"
 relatedTopics: []
+quiz:
+  - question: "A user uploading a 10 GB video on hotel wifi loses their connection at 80% done. With a well-designed upload flow, what happens when they reconnect?"
+    options:
+      - "Resume from the last acknowledged chunk — only the remaining ~20% re-uploads"
+      - "The entire 10 GB re-uploads from scratch"
+      - "The partial file plays at reduced quality"
+      - "The upload fails permanently and must be restarted by support"
+    answer: 0
+    explanation: "Chunked (resumable) upload splits the file into 4–8 MB chunks, each acknowledged individually. On reconnect the client resumes from the last acked chunk, so only the missing portion re-uploads. A single HTTP PUT of 10 GB would indeed force a full restart — which is exactly why YouTube doesn't use one."
+  - question: "Peak hours hit and the upload queue backs up: videos take hours to become 'available' instead of minutes. Where is the bottleneck, and what's the fix?"
+    options:
+      - "Object storage is full — buy more disks"
+      - "The metadata database is slow — add read replicas"
+      - "Transcoding worker capacity — scale the worker pool out, since workers are stateless and pull from the queue"
+      - "The CDN cache is cold — pre-warm popular videos"
+    answer: 2
+    explanation: "Transcoding is CPU-intensive (30+ min per hour of 1080p on one core). When the backlog grows, the transcoding worker pool is the constraint. Because workers are stateless and pull jobs from the message queue, you scale horizontally — add workers at peak, remove them overnight. Storage and metadata aren't what's stalling playback availability."
+  - question: "A viewer on a train hits a tunnel and their bandwidth collapses mid-video. Why doesn't the video freeze on a properly designed player?"
+    options:
+      - "The player pre-downloads the entire video before playback"
+      - "The origin server pushes a lower-quality copy to the client"
+      - "The CDN detects the drop and re-encodes the stream in real time"
+      - "The ABR algorithm switches to a lower-quality tier at the next segment boundary, fetching from a different quality folder"
+    answer: 3
+    explanation: "Adaptive Bitrate streaming pre-transcodes each video into multiple quality tiers, split into independently-decodable 2-second segments. When bandwidth drops, the player simply fetches the next segment from a lower-quality folder — no re-buffering, no re-encoding, no full download. Real-time re-encoding at the CDN would never scale."
+  - question: "A finance team asks why YouTube's bandwidth bill is survivable when peak outbound is ~83 Tbps. What's the core reason?"
+    options:
+      - "Videos are compressed so aggressively that bandwidth is trivial"
+      - "Users are throttled to keep total traffic low"
+      - "Every stream is served from one massive central data center at bulk pricing"
+      - "~20% of videos drive ~80% of views, so CDN edges cache those and serve most traffic locally — the origin sees mostly cache misses"
+    answer: 3
+    explanation: "The 80/20 view distribution is what makes CDN economics work: a small set of popular videos is cached at edge nodes near viewers, giving near-100% hit rates for the bulk of traffic. The origin is hit only for cache misses (roughly the first viewer per region per video). No single origin could push 83 Tbps, and compression/throttling don't come close to closing that gap."
 ---
+
+<Callout type="analogy">
+Think of YouTube like a restaurant that also runs a warehouse. **Uploading** is
+the delivery dock: a supplier drops off raw ingredients (your original video
+file) that nobody can eat yet. **Transcoding** is the prep kitchen — it turns
+those raw ingredients into ready-to-serve dishes in several portion sizes
+(360p, 720p, 1080p, 4K), pre-plated into bite-sized pieces. **Streaming** is the
+waiter delivering those bites to your table one at a time, swapping to a smaller
+portion the instant your appetite (bandwidth) shrinks.
+
+The two hard jobs are completely different: getting raw goods *in* reliably, and
+serving finished dishes *out* to millions of tables at once. Design them
+separately and the whole system gets simpler.
+</Callout>
 
 ## Requirements
 
@@ -69,6 +116,23 @@ Outbound bandwidth ≈ 41.7M × 2 Mbps = 83 Tbps
 
 No single data center handles 83 Tbps of outbound video. This number immediately tells you the answer: a global CDN is not optional — it is the only way the economics work.
 
+<Callout type="warning">
+The bottleneck to name out loud is **outbound bandwidth**, not storage. Storage
+grows steadily and is cheap per GB; you can always buy more disks. But **83 Tbps
+of egress** through one origin is physically and financially impossible — a
+single 100 Gbps link would need ~830 of them just for the origin. The fix is to
+push traffic to the *edge*: a CDN turns one 83 Tbps problem into thousands of
+small, local ones, each served from a cache near the viewer.
+</Callout>
+
+<Callout type="tip">
+In practice, do the two "shape" calculations first and let them drive the design.
+The **8.3 GB/sec inbound** number tells you upload needs durable object storage
+and resumable transfers; the **83 Tbps outbound** number single-handedly justifies
+the CDN. Interviewers care less about your exact GB-per-hour guess than that you
+noticed inbound and outbound are orders of magnitude apart.
+</Callout>
+
 ## Video Upload Flow
 
 Uploading a raw video file — often multiple gigabytes — over the internet requires a design that handles unreliable connections gracefully. A single HTTP PUT of a 10 GB file is impractical; any network interruption means starting over.
@@ -101,6 +165,15 @@ The processing pipeline is **asynchronous**:
 
 Transcoding is CPU-intensive: transcoding one hour of 1080p video can take 30+ minutes on a single CPU core. The message queue allows you to scale the worker pool horizontally — add more workers during peak hours, scale down overnight. Workers are stateless, so autoscaling is straightforward.
 
+<Callout type="tip">
+In practice, big videos are split so several workers transcode different
+segments of the *same* video in parallel, then the pieces are stitched back
+together. This turns a 30-minute serial job into a few minutes of wall-clock
+time. It's also why the pipeline runs one codec per tier — cheap **H.264** for
+360p/720p/1080p, and the more efficient **VP9/AV1** for 4K where the bandwidth
+savings pay for the extra CPU.
+</Callout>
+
 The result of processing one uploaded video is many artifacts in object storage: dozens of segment files per quality level, manifest files, and auto-generated thumbnails (sampled at fixed intervals by a separate thumbnail worker).
 
 ## Video Streaming
@@ -125,6 +198,14 @@ The flow:
 **Why segments?** Each 2-second segment is independently decodable. Switching quality tiers just means fetching the next segment from a different quality folder — no re-buffering required. The segment size balances between startup latency (smaller segments = faster first byte) and efficiency (larger segments = less HTTP overhead).
 
 All segments and manifests are served through a CDN — the origin server (object storage) is rarely hit for popular videos.
+
+<Callout type="tip">
+In practice the whole ABR loop is client-side: **the player**, not the server,
+decides which quality to fetch next based on measured bandwidth and buffer
+health. That keeps the server dumb and stateless — it just hands out static
+segment files over plain HTTP. Anything cacheable over plain HTTP is trivially
+CDN-friendly, which is exactly why streaming was built this way.
+</Callout>
 
 ## Metadata and Search
 
@@ -168,3 +249,7 @@ The CDN is not a nice-to-have — it is what makes YouTube's bandwidth bill surv
 **Regional architecture**: YouTube operates multiple origin regions. A user in Asia uploads to the nearest upload endpoint; their video is stored in an Asian data center first, then replicated globally for CDN seeding. Regional origins reduce upload latency and mean the CDN in each region has a nearby origin to fill from.
 
 The full data flow for a view: viewer's player fetches manifest from CDN edge → CDN edge serves cached manifest (or fetches from origin and caches) → player fetches 2-second segments from CDN edge → CDN edge serves from local cache with near-zero latency. The origin object storage sees only cache misses — typically the first viewer in each region for each video.
+
+## Summary
+
+YouTube is really two systems bolted to a shared storage layer: a reliable **upload** path and a massively-scaled **streaming** path. Uploads use **chunked, resumable transfers** into durable **object storage**, then an **asynchronous transcoding pipeline** (message queue plus stateless workers running FFmpeg) turns each raw file into multiple quality tiers pre-cut into small **HLS/DASH segments**. Playback uses **adaptive bitrate streaming**, where the client-side player picks a quality tier per segment based on live bandwidth — swapping down seamlessly when the network degrades. The dominant constraint is **outbound bandwidth** (~83 Tbps at peak), which is only survivable because a **global CDN** caches the ~20% of videos that drive ~80% of views close to viewers. Metadata and search live in separate stores (MySQL plus Elasticsearch) because video bytes and video facts have completely different access patterns.
